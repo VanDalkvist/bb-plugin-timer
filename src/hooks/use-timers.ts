@@ -227,6 +227,18 @@ export function useTimers(options: UseTimersOptions = {}) {
     }
   }, [rpc, fetchTimers, report]);
 
+  const resetAll = useCallback(async () => {
+    completedAlertedRef.current.clear();
+    try {
+      await rpc.call("timers_reset_all");
+      setIsSequenceActive(false);
+      isSequenceActiveRef.current = false;
+      fetchTimers();
+    } catch (err) {
+      report(err);
+    }
+  }, [rpc, fetchTimers, report]);
+
   const activeRunningCount = timers.filter((t) => t.status === "running").length;
   const completedCount = timers.filter((t) => t.status === "completed").length;
 
@@ -257,6 +269,7 @@ export function useTimers(options: UseTimersOptions = {}) {
     clearCompleted,
     startSequence,
     stopSequence,
+    resetAll,
     refetch: fetchTimers,
   };
 }

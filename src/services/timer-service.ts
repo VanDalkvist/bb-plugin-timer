@@ -122,6 +122,16 @@ export class TimerService {
     return reset;
   }
 
+  async resetAllTimers(): Promise<Timer[]> {
+    const existing = await this.storage.getTimers();
+    const reset = existing.map((t) => resetTimer(t));
+
+    await this.storage.saveTimers(reset);
+    await this.storage.setSequenceActive?.(false);
+    this.onTimersChanged?.(reset);
+    return reset;
+  }
+
   async addExtraTime(id: string, extraSeconds: number): Promise<Timer | null> {
     const existing = await this.storage.getTimers();
     const target = existing.find((t) => t.id === id);

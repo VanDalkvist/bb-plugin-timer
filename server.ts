@@ -73,6 +73,13 @@ export const rpcContract = defineRpcContract({
       isSequenceActive: z.boolean(),
     }),
   },
+  timers_reset_all: {
+    input: z.null(),
+    output: z.object({
+      ok: z.boolean(),
+      count: z.number(),
+    }),
+  },
 });
 
 export const TIMERS_CHANGED = "timers-changed";
@@ -146,6 +153,10 @@ export default async function plugin(bb: BbPluginApi) {
     async timers_stop_sequence() {
       const res = await service.stopSequence();
       return { ok: true, isSequenceActive: res.isSequenceActive };
+    },
+    async timers_reset_all() {
+      const reset = await service.resetAllTimers();
+      return { ok: true, count: reset.length };
     },
   });
 
@@ -317,7 +328,14 @@ export default async function plugin(bb: BbPluginApi) {
         if (!id) {
           return {
             exitCode: 1,
-            stderr: "Usage: bb timer reset <id>\n",
+            stderr: "Usage: bb timer reset <id|--all>\n",
+          };
+        }
+        if (id === "--all" || id === "all") {
+          const reset = await service.resetAllTimers();
+          return {
+            exitCode: 0,
+            stdout: `Reset all ${reset.length} timer(s) to initial durations.\n`,
           };
         }
         const reset = await service.resetTimer(id);
@@ -330,6 +348,14 @@ export default async function plugin(bb: BbPluginApi) {
         return {
           exitCode: 0,
           stdout: `Reset timer "${reset.title}" to ${formatTime(reset.totalDurationSeconds)} [id: ${reset.id}]\n`,
+        };
+      }
+
+      if (subcommand === "reset-all") {
+        const reset = await service.resetAllTimers();
+        return {
+          exitCode: 0,
+          stdout: `Reset all ${reset.length} timer(s) to initial durations.\n`,
         };
       }
 

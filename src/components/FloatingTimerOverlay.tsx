@@ -70,6 +70,7 @@ export function FloatingTimerOverlay() {
     clearCompleted,
     startSequence,
     stopSequence,
+    resetAll,
   } = useTimers({ soundEnabled });
 
   // Dragging state
@@ -424,31 +425,43 @@ export function FloatingTimerOverlay() {
           </div>
         )}
 
-        {/* Sequential Mode Button */}
-        {timers.length > 1 && (
-          <div>
-            {isSequenceActive ? (
-              <Button
-                variant="default"
-                size="sm"
-                onClick={stopSequence}
-                className="w-full h-8 text-xs gap-1.5 font-medium bg-emerald-600 hover:bg-emerald-500 text-white shadow-sm"
-              >
-                <Icon name="Pause" className="size-3.5" />
-                <span>Идёт цепочка таймеров — Нажмите для остановки</span>
-              </Button>
-            ) : (
-              <Button
-                variant="secondary"
-                size="sm"
-                onClick={startSequence}
-                className="w-full h-8 text-xs gap-1.5 font-medium hover:bg-accent/40 shadow-sm border border-border/60"
-                title="Запустить все таймеры по очереди: когда завершится один, автоматически стартует следующий"
-              >
-                <Icon name="Play" className="size-3.5 fill-current text-primary" />
-                <span>Запустить все последовательно</span>
-              </Button>
+        {/* Sequential Mode and Reset All Controls */}
+        {timers.length > 0 && (
+          <div className="flex items-center gap-1.5">
+            {timers.length > 1 && (
+              isSequenceActive ? (
+                <Button
+                  variant="default"
+                  size="sm"
+                  onClick={stopSequence}
+                  className="flex-1 h-8 text-xs gap-1.5 font-medium bg-emerald-600 hover:bg-emerald-500 text-white shadow-sm"
+                >
+                  <Icon name="Pause" className="size-3.5" />
+                  <span>Остановить цепочку</span>
+                </Button>
+              ) : (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={startSequence}
+                  className="flex-1 h-8 text-xs gap-1.5 font-medium hover:bg-accent/40 shadow-sm border border-border/60"
+                  title="Запустить все таймеры по очереди: когда завершится один, автоматически стартует следующий"
+                >
+                  <Icon name="Play" className="size-3.5 fill-current text-primary" />
+                  <span>Запустить последовательно</span>
+                </Button>
+              )
             )}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={resetAll}
+              className="h-8 px-2.5 text-xs gap-1.5 shrink-0 text-muted-foreground hover:text-foreground"
+              title="Сбросить все таймеры к начальному времени, чтобы запустить заново"
+            >
+              <Icon name="RotateCcw" className="size-3.5" />
+              <span>Сбросить все</span>
+            </Button>
           </div>
         )}
 

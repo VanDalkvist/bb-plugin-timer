@@ -20,6 +20,7 @@ export function TimersNavPage() {
     clearCompleted,
     startSequence,
     stopSequence,
+    resetAll,
   } = useTimers({ soundEnabled: false });
 
   return (
@@ -38,6 +39,18 @@ export function TimersNavPage() {
           </div>
 
           <div className="flex items-center gap-2">
+            {timers.length > 0 && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={resetAll}
+                className="text-xs gap-1.5"
+                title="Сбросить все таймеры к начальному времени"
+              >
+                <Icon name="RotateCcw" className="size-3.5" />
+                <span>Сбросить все</span>
+              </Button>
+            )}
             {timers.length > 1 && (
               isSequenceActive ? (
                 <Button

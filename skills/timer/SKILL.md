@@ -16,6 +16,9 @@ The Floating Timer plugin manages floating timers in BB IDE with live overlays, 
 | `bb timer pause <id>` | Pause a running timer. |
 | `bb timer start <id>` | Resume or start a timer. |
 | `bb timer reset <id>` | Reset a timer back to its initial full duration. |
+| `bb timer reset-all` | Reset all timers back to their initial duration. |
+| `bb timer sequence` | Start all timers sequentially in order. |
+| `bb timer stop-sequence` | Stop the sequential execution chain. |
 | `bb timer remove <id>` | Delete a timer. |
 | `bb timer clear` | Clear all completed timers. |
 

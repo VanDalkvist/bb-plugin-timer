@@ -176,3 +176,22 @@ test("TimerService startSequence and automatic progression", async () => {
   assert.equal(res3.isSequenceActive, false);
   assert.equal(res3.timers[1].status, "completed");
 });
+
+test("TimerService resetAllTimers resets all timers to idle", async () => {
+  let currentTime = 1000000;
+  const storage = new InMemoryTimerStorage();
+  const service = new TimerService(storage, undefined, () => currentTime);
+
+  const t1 = await service.addTimer({ title: "Шаг 1", durationMinutes: 5, startImmediately: true });
+  const t2 = await service.addTimer({ title: "Шаг 2", durationMinutes: 10, startImmediately: true });
+
+  currentTime += 100000;
+  await service.listTimers();
+
+  const resetList = await service.resetAllTimers();
+  assert.equal(resetList.length, 2);
+  assert.equal(resetList[0].status, "idle");
+  assert.equal(resetList[0].remainingSeconds, 300);
+  assert.equal(resetList[1].status, "idle");
+  assert.equal(resetList[1].remainingSeconds, 600);
+});

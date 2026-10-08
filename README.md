@@ -1,58 +1,58 @@
 # bb-plugin-timer — Floating Timer for BB IDE
 
-Плавающий мульти-таймер (App-wide overlay) в BB IDE для фокус-блоков, помидорок, спринтов и повседневных задач.
+Run floating focus timers, custom sprints, and pomodoro blocks anywhere in BB.
 
-## Возможности
+## Capabilities
 
-- **App-wide Overlay (`slots.experimental_appOverlay`)**: Плавающий виджет доступен сквозным образом во всех окнах, тредах и экранах BB IDE.
-- **Два режима отображения**:
-  - **Мини-бейдж / пилюля**: Компактный индикатор в углу экрана со счётчиком ближайшего таймера (например, `⏱️ Помидорка 24:12`) и мягкой пульсацией при завершении (`🔔 Готов таймер!`).
-  - **Развёрнутое плавающее окно**: Интерактивная карточка с таймерами, прогресс-барами, быстрыми кнопками `+1м` / `+5м`, сбросом и удалением.
-- **Свободное перетаскивание (Drag & Drop)**: Окно можно перетащить за заголовок в любое удобное место экрана. Позиция сохраняется в `localStorage`.
-- **Мульти-таймеры**: Одновременный запуск нескольких независимых таймеров с произвольными названиями и длительностью.
-- **Быстрые пресеты**: Кнопки быстрого старта на `1м`, `5м`, `10м`, `15м`, `25м` (помидорка), `45м`, `60м`, а также произвольный ввод минут.
-- **Звуковое оповещение (Web Audio API)**: Мягкий гармоничный аккорд по завершении таймера без внешних аудио-файлов, с возможностью мгновенного отключения звука (кнопка Mute).
-- **Кнопка в шапке треда (`slots.experimental_threadHeaderAction`)**: Быстрый вызов виджета и индикация оставшегося времени прямо в верхнем баре текущего треда.
-- **Панель в сайдбаре (`slots.navPanel`)**: Полноэкранный дашборд со списком всех фокус-сессий по адресу `/plugins/timer/timers`.
-- **CLI & Агентный навык (`bb timer`)**: Управление таймерами через терминал и вызов агентами.
+- **App-wide Overlay (`slots.experimental_appOverlay`)**: Floating overlay accessible across all BB windows, projects, and threads.
+- **Two Display Modes**:
+  - **Compact Pill**: Subtle floating pill displaying active countdown (e.g. `⏱️ Review 24:12`) and pulsing alert on completion.
+  - **Expanded Card**: Full management window with large digital timers, progress bars, +1m/+5m quick-adjust buttons, pause, reset, and delete.
+- **Drag & Drop**: Freely reposition both the pill and the expanded window. Position is persisted in `localStorage`.
+- **Parallel Multi-Timers**: Run multiple independent timers at once with custom labels.
+- **Quick Presets**: Instant start presets for `1m`, `5m`, `10m`, `15m`, `25m` (pomodoro), `45m`, and `60m`, plus custom duration input.
+- **Audio Chime (Web Audio API)**: Self-contained harmonic chime on timer completion with instant mute toggle.
+- **Thread Header Action (`slots.experimental_threadHeaderAction`)**: Live timer display in thread header for 1-click toggling.
+- **Sidebar Nav Panel (`slots.navPanel`)**: Full-page dashboard at `/plugins/timer/timers`.
+- **CLI & Agent Skill (`bb timer`)**: Complete CLI tool and skill for agents and terminals.
 
-## CLI Команды
+## CLI Usage
 
 ```bash
-# Список всех таймеров
+# List all timers
 bb timer list
 
-# Запустить таймер на 25 минут с названием
-bb timer add 25 "Помидорка: ревью кода"
+# Start a 25-minute timer with a label
+bb timer add 25 "Pomodoro: PR review"
 
-# Запустить таймер на 5 минут
-bb timer add 5 "Чай"
+# Start a 5-minute break
+bb timer add 5 "Tea break"
 
-# Пауза / Возобновление
+# Pause / Resume
 bb timer pause <id>
 bb timer start <id>
 
-# Сброс к начальному времени
+# Reset to initial duration
 bb timer reset <id>
 
-# Удаление
+# Delete timer
 bb timer remove <id>
 
-# Очистка завершённых таймеров
+# Clear completed
 bb timer clear
 ```
 
-## Архитектура и принципы
+## Architecture & Code Quality
 
-- `src/domain/timer.ts`: Чистые детерминированные функции расчёта времени (`targetEndAt`), прогресса и форматирования, независимые от тайм-дрифта и гибернации вкладок.
-- `src/services/timer-service.ts`: Сервисный слой работы со хранилищем `bb.storage.kv` и реалтайм-нотификациями `bb.realtime`.
-- `server.ts`: Backend RPC-контракты (`defineRpcContract`) и CLI интерфейс (`bb.cli.register`).
-- `app.tsx`: Регистрация App-wide overlay, Thread Header Action и Nav Panel.
-- Соблюдение правил `AP-010` — `AP-032` (модульный монолит, тонкие точки входа, fail-fast, типизированные контракты, CQS).
+- `src/domain/timer.ts`: Pure deterministic time calculation (`targetEndAt`), progress math, and formatting. Immune to background tab throttling or system sleep.
+- `src/services/timer-service.ts`: Service layer managing SQLite KV storage (`bb.storage.kv`) and realtime broadcasts (`bb.realtime`).
+- `server.ts`: Backend RPC contracts (`defineRpcContract`) and CLI registration (`bb.cli.register`).
+- `app.tsx`: Frontend registration for App-wide overlay, Thread Header Action, and Nav Panel.
+- Adheres to architecture rules AP-010 through AP-032.
 
-## Тестирование и сборка
+## Testing & Build
 
 ```bash
-npm test         # Запуск юнит- и контрактных тестов на node:test
-bb plugin build  # Сборка серверного и клиентского бандлов в dist/
+npm test         # Run unit and contract tests via node:test
+bb plugin build  # Build server and app bundles into dist/
 ```

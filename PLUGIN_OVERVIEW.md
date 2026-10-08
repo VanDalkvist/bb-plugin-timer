@@ -1,13 +1,13 @@
-# Floating Timer — Плавающий мульти-таймер для BB IDE
+# Floating Timer
 
-Плавающий мульти-таймер, который всегда под рукой во время работы над кодом, ревью и планированием в BB IDE.
+Run floating focus timers, custom sprints, and pomodoro blocks anywhere in BB. The overlay keeps time visible without taking over your editor or conversation.
 
-### Основные фичи
+## Capabilities
 
-- **Сквозной App-wide Overlay**: Виджет парит поверх интерфейса и доступен из любого проекта или треда.
-- **Сворачивание в компактную пилюлю**: Не мешает рабочему пространству, показывая статус активного спринта.
-- **Свободное позиционирование**: Перетаскивайте окно в любое место экрана.
-- **Параллельные таймеры**: Запускайте несколько таймеров одновременно (например, 25-минутный рабочий фокус-блок и 5-минутный чай).
-- **Пресеты и гибкие настройки**: Быстрые кнопки от 1 до 60 минут, кастомный ввод, быстрое добавление времени (`+1м` / `+5м`).
-- **Звук и визуал**: Мягкий сигнал Web Audio API без внешних зависимостей.
-- **Интеграция с CLI и агентами**: Команда `bb timer` и встроенный навык для управления фокус-сессиями.
+- **App-Wide Overlay**: Mounts everywhere across BB. Collapses into a non-intrusive floating pill that displays the earliest ending timer, and expands into a full control card when clicked.
+- **Drag & Drop Positioning**: Reposition the pill or the expanded card anywhere on screen. Position persists across window reloads and thread switches.
+- **Concurrent Multi-Timers**: Track multiple independent sessions at the same time, such as a 25-minute code sprint and a 5-minute break.
+- **One-Click Presets & Quick Adjustments**: Start immediately with 1, 5, 10, 15, 25, 45, or 60 minute presets, enter custom durations, or add +1m / +5m to running timers on the fly.
+- **Audio & Visual Alerts**: Synthesizes a gentle harmonic completion chime using the Web Audio API without external audio files. Includes a mute toggle right in the header.
+- **Thread Header Action**: View the active countdown directly in the thread header bar and toggle the overlay in one click.
+- **CLI & Agent Skill**: Manage timers with the `bb timer` command (`bb timer add 25 "Review"`, `bb timer list`, `bb timer pause <id>`).

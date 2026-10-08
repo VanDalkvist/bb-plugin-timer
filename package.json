@@ -8,7 +8,7 @@
   },
   "bb": {
     "name": "Floating Timer",
-    "description": "Плавающий мульти-таймер (App-wide overlay) с пресетами, звуковыми оповещениями и фокус-блоками.",
+    "description": "Run floating focus timers, custom sprints, and pomodoro blocks anywhere in BB.",
     "branding": {
       "icon": "Timer"
     },

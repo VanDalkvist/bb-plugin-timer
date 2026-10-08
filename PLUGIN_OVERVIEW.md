@@ -1,21 +1,13 @@
-Keep a todo list beside the work it belongs to, in the sidebar and in
-your agent threads.
+# Floating Timer — Плавающий мульти-таймер для BB IDE
 
-## What you get
+Плавающий мульти-таймер, который всегда под рукой во время работы над кодом, ревью и планированием в BB IDE.
 
-- An **Example todos** page in the left sidebar that adds, completes, and
-  removes todos.
-- A `bb timer` command that does the same from a terminal.
-- Live updates, so a change made in one place reaches every open page at once.
+### Основные фичи
 
-## How it works
-
-The todos live in this plugin's own storage on the BB server, one list per
-installation. Nothing leaves the machine, and the plugin needs no account, API
-key, or external service.
-
-## For agents
-
-The bundled skill tells an agent to read the list with `bb timer list`, add
-one todo at a time with `bb timer add`, and close finished work with
-`bb timer done`.
+- **Сквозной App-wide Overlay**: Виджет парит поверх интерфейса и доступен из любого проекта или треда.
+- **Сворачивание в компактную пилюлю**: Не мешает рабочему пространству, показывая статус активного спринта.
+- **Свободное позиционирование**: Перетаскивайте окно в любое место экрана.
+- **Параллельные таймеры**: Запускайте несколько таймеров одновременно (например, 25-минутный рабочий фокус-блок и 5-минутный чай).
+- **Пресеты и гибкие настройки**: Быстрые кнопки от 1 до 60 минут, кастомный ввод, быстрое добавление времени (`+1м` / `+5м`).
+- **Звук и визуал**: Мягкий сигнал Web Audio API без внешних зависимостей.
+- **Интеграция с CLI и агентами**: Команда `bb timer` и встроенный навык для управления фокус-сессиями.

@@ -1,225 +1,309 @@
-// bb-plugin-timer — a BB plugin backend entry.
-//
-// The default export is a factory that receives the plugin API. BB supplies
-// the tiny defineRpcContract runtime helper; the API type remains type-only.
-//
-// The example is a todo list. One store in bb.storage.kv serves three
-// surfaces: the Example todos page (app.tsx, over RPC), the `bb timer` CLI
-// command (below), and the skill in skills/example-todos/SKILL.md that tells
-// agents how to use that command. A write from any surface publishes a realtime signal so
-// every open page refetches.
-import { randomUUID } from "node:crypto";
+// bb-plugin-timer — backend entry
 import { defineRpcContract, type BbPluginApi } from "@get-bb/plugin-sdk";
 import { z } from "zod";
+import { TimerService, type TimerStorage } from "./src/services/timer-service.ts";
+import { formatTime, type Timer } from "./src/domain/timer.ts";
 
-const todoSchema = z.object({
+export const timerSchema = z.object({
   id: z.string(),
   title: z.string(),
-  done: z.boolean(),
-  createdAt: z.string(),
+  totalDurationSeconds: z.number(),
+  remainingSeconds: z.number(),
+  status: z.enum(["idle", "running", "paused", "completed"]),
+  startedAt: z.number().nullable(),
+  targetEndAt: z.number().nullable(),
+  createdAt: z.number(),
 });
-export type Todo = z.infer<typeof todoSchema>;
 
-// Both schemas run at the wire boundary. Handler input/output are inferred
-// from the shared contract; app.tsx imports only its type.
 export const rpcContract = defineRpcContract({
-  todos_list: {
+  timers_list: {
     input: z.null(),
-    output: z.object({ todos: z.array(todoSchema) }),
+    output: z.object({ timers: z.array(timerSchema) }),
   },
-  todos_add: {
-    input: z.object({ title: z.string().trim().min(1).max(200) }),
-    output: todoSchema,
+  timers_add: {
+    input: z.object({
+      title: z.string().trim().max(100),
+      durationMinutes: z.number().positive(),
+      startImmediately: z.boolean().optional(),
+    }),
+    output: timerSchema,
   },
-  todos_set_done: {
-    input: z.object({ id: z.string(), done: z.boolean() }),
-    output: todoSchema,
+  timers_start: {
+    input: z.object({ id: z.string() }),
+    output: timerSchema.nullable(),
   },
-  todos_remove: {
+  timers_pause: {
+    input: z.object({ id: z.string() }),
+    output: timerSchema.nullable(),
+  },
+  timers_reset: {
+    input: z.object({ id: z.string() }),
+    output: timerSchema.nullable(),
+  },
+  timers_add_time: {
+    input: z.object({ id: z.string(), extraSeconds: z.number().int() }),
+    output: timerSchema.nullable(),
+  },
+  timers_rename: {
+    input: z.object({ id: z.string(), title: z.string().trim().min(1).max(100) }),
+    output: timerSchema.nullable(),
+  },
+  timers_remove: {
     input: z.object({ id: z.string() }),
     output: z.object({ removed: z.boolean() }),
   },
+  timers_clear_completed: {
+    input: z.null(),
+    output: z.object({ clearedCount: z.number() }),
+  },
 });
 
-/** Realtime channel app.tsx listens on; the payload is the todo count. */
-const TODOS_CHANGED = "todos-changed";
+export const TIMERS_CHANGED = "timers-changed";
+
+class KvTimerStorage implements TimerStorage {
+  private readonly bb: BbPluginApi;
+
+  constructor(bb: BbPluginApi) {
+    this.bb = bb;
+  }
+
+  async getTimers(): Promise<Timer[]> {
+    return (await this.bb.storage.kv.get<Timer[]>("timers")) ?? [];
+  }
+
+  async saveTimers(timers: Timer[]): Promise<void> {
+    await this.bb.storage.kv.set("timers", timers);
+  }
+}
 
 export default async function plugin(bb: BbPluginApi) {
-  bb.log.info("loaded");
+  bb.log.info("Floating Timer plugin loaded");
 
-  // Declarative settings — rendered in BB's settings UI and editable with
-  // `bb plugin config timer`. Add `secret: true` for values like API keys.
-  // Settings are read once per load: reload the plugin after changing one.
-  const settings = bb.settings.define({
-    showDone: {
-      type: "boolean",
-      label: "Show completed todos",
-      default: true,
-    },
+  const storage = new KvTimerStorage(bb);
+  const service = new TimerService(storage, (timers) => {
+    bb.realtime.publish(TIMERS_CHANGED, { count: timers.length });
   });
-  const { showDone } = await settings.get();
-
-  // Namespaced key-value storage in bb.db (JSON values, up to 256KB each).
-  // For bigger or relational data use bb.storage.database().
-  async function readTodos(): Promise<Todo[]> {
-    return (await bb.storage.kv.get<Todo[]>("todos")) ?? [];
-  }
-  async function writeTodos(todos: Todo[]): Promise<void> {
-    await bb.storage.kv.set("todos", todos);
-    // Ephemeral broadcast to every connected client; nothing is persisted.
-    bb.realtime.publish(TODOS_CHANGED, { count: todos.length });
-  }
-
-  async function listTodos(): Promise<Todo[]> {
-    const todos = await readTodos();
-    return showDone ? todos : todos.filter((todo) => !todo.done);
-  }
-  async function addTodo(title: string): Promise<Todo> {
-    const todo: Todo = {
-      id: randomUUID().slice(0, 8),
-      title,
-      done: false,
-      createdAt: new Date().toISOString(),
-    };
-    await writeTodos([...(await readTodos()), todo]);
-    return todo;
-  }
-  async function setTodoDone(id: string, done: boolean): Promise<Todo | null> {
-    const todos = await readTodos();
-    const todo = todos.find((candidate) => candidate.id === id);
-    if (todo === undefined) return null;
-    todo.done = done;
-    await writeTodos(todos);
-    return todo;
-  }
-  async function removeTodo(id: string): Promise<boolean> {
-    const todos = await readTodos();
-    const remaining = todos.filter((todo) => todo.id !== id);
-    if (remaining.length === todos.length) return false;
-    await writeTodos(remaining);
-    return true;
-  }
 
   bb.rpc.register(rpcContract, {
-    todos_list: async () => ({ todos: await listTodos() }),
-    todos_add: ({ title }) => addTodo(title),
-    todos_set_done: async ({ id, done }) => {
-      const todo = await setTodoDone(id, done);
-      if (todo === null) throw new Error(`No todo with id ${id}`);
-      return todo;
+    async timers_list() {
+      const timers = await service.listTimers();
+      return { timers };
     },
-    todos_remove: async ({ id }) => ({ removed: await removeTodo(id) }),
+    async timers_add(input) {
+      return await service.addTimer(input);
+    },
+    async timers_start(input) {
+      return await service.startTimer(input.id);
+    },
+    async timers_pause(input) {
+      return await service.pauseTimer(input.id);
+    },
+    async timers_reset(input) {
+      return await service.resetTimer(input.id);
+    },
+    async timers_add_time(input) {
+      return await service.addExtraTime(input.id, input.extraSeconds);
+    },
+    async timers_rename(input) {
+      return await service.renameTimer(input.id, input.title);
+    },
+    async timers_remove(input) {
+      const removed = await service.removeTimer(input.id);
+      return { removed };
+    },
+    async timers_clear_completed() {
+      const clearedCount = await service.clearCompleted();
+      return { clearedCount };
+    },
   });
 
-  // The `bb timer` command: what agents (and you) use from a shell. Parsing
-  // argv is plugin-owned; `commands` is metadata BB renders into help and
-  // the generated plugin-commands skill without running plugin code.
-  const usage = [
-    "Usage:",
-    "  bb timer list [--json]",
-    "  bb timer add <title> [--json]",
-    "  bb timer done <todo-id> [--json]",
-    "  bb timer undo <todo-id> [--json]",
-    "  bb timer remove <todo-id> [--json]",
-  ].join("\n");
-  function formatTodo(todo: Todo): string {
-    return `[${todo.done ? "x" : " "}] ${todo.id}  ${todo.title}`;
-  }
   bb.cli.register({
     name: "timer",
-    summary: "Manage the Timer plugin's example todo list",
+    summary: "Manage floating timers and focus sessions",
     commands: [
-      { name: "list", summary: "List todos", usage: "bb timer list [--json]" },
+      {
+        name: "list",
+        summary: "List all active, paused, and completed timers",
+        usage: "bb timer list",
+      },
       {
         name: "add",
-        summary: "Add a todo",
-        usage: "bb timer add <title> [--json]",
+        summary: "Create and immediately start a timer for N minutes",
+        usage: "bb timer add <minutes> [name]",
       },
       {
-        name: "done",
-        summary: "Mark a todo done",
-        usage: "bb timer done <todo-id> [--json]",
+        name: "pause",
+        summary: "Pause a running timer by id",
+        usage: "bb timer pause <id>",
       },
       {
-        name: "undo",
-        summary: "Mark a todo not done",
-        usage: "bb timer undo <todo-id> [--json]",
+        name: "start",
+        summary: "Resume or start a timer by id",
+        usage: "bb timer start <id>",
+      },
+      {
+        name: "reset",
+        summary: "Reset a timer to its initial duration",
+        usage: "bb timer reset <id>",
       },
       {
         name: "remove",
-        summary: "Remove a todo",
-        usage: "bb timer remove <todo-id> [--json]",
+        summary: "Delete a timer by id",
+        usage: "bb timer remove <id>",
+      },
+      {
+        name: "clear",
+        summary: "Clear all completed timers",
+        usage: "bb timer clear",
       },
     ],
     async run(argv) {
-      const json = argv.includes("--json");
-      const [command, ...args] = argv.filter((arg) => arg !== "--json");
-      const reply = (value: unknown, text: string) => ({
-        exitCode: 0,
-        stdout: json ? JSON.stringify(value) : text,
-      });
-      const notFound = (missingId: string) => ({
-        exitCode: 1,
-        stderr: `No todo with id ${missingId}. Run "bb timer list" to see ids.`,
-      });
-      const todoId = args[0];
-      switch (command) {
-        case undefined:
-        case "help":
-        case "--help":
-          return { exitCode: 0, stdout: usage };
-        case "list": {
-          const todos = await listTodos();
-          return reply(
-            todos,
-            todos.length === 0 ? "No todos." : todos.map(formatTodo).join("\n"),
-          );
+      const subcommand = argv[0];
+
+      if (!subcommand || subcommand === "list") {
+        const timers = await service.listTimers();
+        if (timers.length === 0) {
+          return {
+            exitCode: 0,
+            stdout: "No timers configured. Add one with `bb timer add <minutes> [name]`.\n",
+          };
         }
-        case "add": {
-          const title = args.join(" ").trim();
-          if (title === "") break;
-          const todo = await addTodo(title);
-          return reply(todo, `Added ${formatTodo(todo)}`);
-        }
-        case "done":
-        case "undo": {
-          if (todoId === undefined || args.length !== 1) break;
-          const todo = await setTodoDone(todoId, command === "done");
-          if (todo === null) return notFound(todoId);
-          return reply(todo, formatTodo(todo));
-        }
-        case "remove": {
-          if (todoId === undefined || args.length !== 1) break;
-          if (!(await removeTodo(todoId))) return notFound(todoId);
-          return reply({ removed: true, id: todoId }, `Removed ${todoId}`);
-        }
+
+        const lines = timers.map((t) => {
+          const statusMap: Record<string, string> = {
+            running: "RUNNING",
+            paused: "PAUSED",
+            idle: "IDLE",
+            completed: "DONE",
+          };
+          const badge = statusMap[t.status] ?? t.status.toUpperCase();
+          const rem = formatTime(t.remainingSeconds);
+          return `[${badge}] ${t.id.padEnd(8)} "${t.title}" — ${rem} left (total ${formatTime(t.totalDurationSeconds)})`;
+        });
+
+        return {
+          exitCode: 0,
+          stdout: lines.join("\n") + "\n",
+        };
       }
-      return { exitCode: 1, stderr: usage };
+
+      if (subcommand === "add") {
+        const minutesArg = argv[1];
+        const minutes = Number(minutesArg);
+        if (Number.isNaN(minutes) || minutes <= 0) {
+          return {
+            exitCode: 1,
+            stderr: "Usage: bb timer add <minutes> [name]\n",
+          };
+        }
+        const name = argv.slice(2).join(" ") || `Таймер ${minutes}м`;
+        const timer = await service.addTimer({
+          durationMinutes: minutes,
+          title: name,
+          startImmediately: true,
+        });
+        return {
+          exitCode: 0,
+          stdout: `Started timer "${timer.title}" (${formatTime(timer.remainingSeconds)}) [id: ${timer.id}]\n`,
+        };
+      }
+
+      if (subcommand === "pause") {
+        const id = argv[1];
+        if (!id) {
+          return {
+            exitCode: 1,
+            stderr: "Usage: bb timer pause <id>\n",
+          };
+        }
+        const paused = await service.pauseTimer(id);
+        if (!paused) {
+          return {
+            exitCode: 1,
+            stderr: `Timer with id "${id}" not found.\n`,
+          };
+        }
+        return {
+          exitCode: 0,
+          stdout: `Paused timer "${paused.title}" at ${formatTime(paused.remainingSeconds)} [id: ${paused.id}]\n`,
+        };
+      }
+
+      if (subcommand === "start" || subcommand === "resume") {
+        const id = argv[1];
+        if (!id) {
+          return {
+            exitCode: 1,
+            stderr: "Usage: bb timer start <id>\n",
+          };
+        }
+        const started = await service.startTimer(id);
+        if (!started) {
+          return {
+            exitCode: 1,
+            stderr: `Timer with id "${id}" not found.\n`,
+          };
+        }
+        return {
+          exitCode: 0,
+          stdout: `Started timer "${started.title}" (${formatTime(started.remainingSeconds)}) [id: ${started.id}]\n`,
+        };
+      }
+
+      if (subcommand === "reset") {
+        const id = argv[1];
+        if (!id) {
+          return {
+            exitCode: 1,
+            stderr: "Usage: bb timer reset <id>\n",
+          };
+        }
+        const reset = await service.resetTimer(id);
+        if (!reset) {
+          return {
+            exitCode: 1,
+            stderr: `Timer with id "${id}" not found.\n`,
+          };
+        }
+        return {
+          exitCode: 0,
+          stdout: `Reset timer "${reset.title}" to ${formatTime(reset.totalDurationSeconds)} [id: ${reset.id}]\n`,
+        };
+      }
+
+      if (subcommand === "remove" || subcommand === "rm") {
+        const id = argv[1];
+        if (!id) {
+          return {
+            exitCode: 1,
+            stderr: "Usage: bb timer remove <id>\n",
+          };
+        }
+        const removed = await service.removeTimer(id);
+        if (!removed) {
+          return {
+            exitCode: 1,
+            stderr: `Timer with id "${id}" not found.\n`,
+          };
+        }
+        return {
+          exitCode: 0,
+          stdout: `Removed timer ${id}\n`,
+        };
+      }
+
+      if (subcommand === "clear") {
+        const count = await service.clearCompleted();
+        return {
+          exitCode: 0,
+          stdout: `Cleared ${count} completed timer(s).\n`,
+        };
+      }
+
+      return {
+        exitCode: 1,
+        stderr: `Unknown subcommand "${subcommand}". Available: list, add, start, pause, reset, remove, clear\n`,
+      };
     },
   });
-
-  // Cleanup on reload/disable/shutdown; hooks run LIFO. The sanctioned place
-  // to clear timers and close connections.
-  bb.onDispose(() => {
-    bb.log.info("disposed");
-  });
-
-  // Long-lived background work: starts after load, gets an AbortSignal on
-  // reload/disable/shutdown, and restarts with backoff if it crashes. Sleeps
-  // must wake on abort — a plain setTimeout sleeps through the stop window
-  // and the plugin reports "degraded (service did not stop)" on reload.
-  // bb.background.service("worker", {
-  //   async start(signal) {
-  //     while (!signal.aborted) {
-  //       await new Promise((resolve) => {
-  //         const timer = setTimeout(resolve, 60_000);
-  //         signal.addEventListener(
-  //           "abort",
-  //           () => { clearTimeout(timer); resolve(undefined); },
-  //           { once: true },
-  //         );
-  //       });
-  //     }
-  //   },
-  // });
 }

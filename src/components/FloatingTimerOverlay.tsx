@@ -236,9 +236,12 @@ export function FloatingTimerOverlay() {
         tabIndex={0}
         title="Зажмите, чтобы перетащить; нажмите, чтобы открыть окно"
         className={cn(
-          "touch-none select-none cursor-grab active:cursor-grabbing group flex items-center gap-2 rounded-full border border-border bg-card/95 px-3.5 py-2 shadow-lg backdrop-blur-md transition-[shadow,background-color] duration-150 hover:bg-accent/20 hover:shadow-xl text-xs font-medium text-foreground max-w-[320px]",
-          completedCount > 0 && "border-amber-500/60 bg-amber-500/10 text-amber-500",
-          activeRunningCount > 0 && "border-primary/50",
+          "touch-none select-none cursor-grab active:cursor-grabbing group flex items-center gap-2 rounded-full border border-border bg-card/95 px-3.5 py-2 shadow-lg backdrop-blur-md transition-[shadow,background-color] duration-150 hover:bg-accent/20 hover:shadow-xl text-xs font-medium max-w-[340px]",
+          activeRunningCount > 0
+            ? "border-primary/50 text-foreground"
+            : completedCount > 0
+            ? "border-amber-500/60 bg-amber-500/10 text-amber-500"
+            : "text-foreground",
         )}
       >
         {/* Grip indicator */}
@@ -253,12 +256,7 @@ export function FloatingTimerOverlay() {
           </div>
         </div>
 
-        {completedCount > 0 ? (
-          <>
-            <span className="size-2 animate-ping rounded-full bg-amber-500 shrink-0" />
-            <span className="truncate">🔔 Готов таймер! ({completedCount})</span>
-          </>
-        ) : earliestRunning ? (
+        {earliestRunning ? (
           <div className="flex items-center gap-1.5 min-w-0">
             <span className="size-2 animate-pulse rounded-full bg-emerald-500 shrink-0" />
             {isSequenceActive && (
@@ -266,7 +264,7 @@ export function FloatingTimerOverlay() {
                 ▶▶
               </span>
             )}
-            <span className="truncate max-w-[130px] font-medium text-foreground">
+            <span className="truncate max-w-[140px] font-medium text-foreground">
               {earliestRunning.title}:
             </span>
             <span className="font-mono font-bold text-primary shrink-0">
@@ -278,6 +276,11 @@ export function FloatingTimerOverlay() {
               </span>
             )}
           </div>
+        ) : completedCount > 0 ? (
+          <>
+            <span className="size-2 animate-ping rounded-full bg-amber-500 shrink-0" />
+            <span className="truncate">🔔 Готов таймер! ({completedCount})</span>
+          </>
         ) : (
           <div className="flex items-center gap-1.5">
             <Icon name="Timer" className="size-4 text-muted-foreground group-hover:text-foreground shrink-0" />

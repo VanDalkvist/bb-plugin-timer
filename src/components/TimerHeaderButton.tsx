@@ -19,8 +19,11 @@ export function TimerHeaderButton() {
       size="sm"
       className={cn(
         "h-7 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground cursor-pointer transition-colors max-w-[240px]",
-        completedCount > 0 && "text-amber-500 hover:text-amber-400 font-medium",
-        activeRunningCount > 0 && "text-primary font-medium",
+        activeRunningCount > 0
+          ? "text-primary font-medium"
+          : completedCount > 0
+          ? "text-amber-500 hover:text-amber-400 font-medium"
+          : "text-muted-foreground",
       )}
       onClick={handleClick}
       title={
@@ -33,8 +36,11 @@ export function TimerHeaderButton() {
         name="Timer"
         className={cn(
           "size-3.5 shrink-0",
-          completedCount > 0 && "text-amber-500 animate-bounce",
-          activeRunningCount > 0 && "text-primary animate-pulse",
+          activeRunningCount > 0
+            ? "text-primary animate-pulse"
+            : completedCount > 0
+            ? "text-amber-500 animate-bounce"
+            : "",
         )}
       />
 

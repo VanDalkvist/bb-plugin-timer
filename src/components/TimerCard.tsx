@@ -8,6 +8,7 @@ import { cn } from "../../lib/utils.ts";
 
 export interface TimerCardProps {
   timer: Timer;
+  index?: number;
   onStart: (id: string) => void;
   onPause: (id: string) => void;
   onReset: (id: string) => void;
@@ -18,6 +19,7 @@ export interface TimerCardProps {
 
 export function TimerCard({
   timer,
+  index,
   onStart,
   onPause,
   onReset,
@@ -85,6 +87,11 @@ export function TimerCard({
             }}
             title="Нажмите, чтобы переименовать"
           >
+            {typeof index === "number" && (
+              <span className="text-[11px] font-mono text-muted-foreground/80 shrink-0">
+                {index + 1}.
+              </span>
+            )}
             <span className="truncate">{timer.title}</span>
             <span className="text-[10px] text-muted-foreground/60 opacity-0 group-hover:opacity-100 hover:opacity-100">
               ✏️

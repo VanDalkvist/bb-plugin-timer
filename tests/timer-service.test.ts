@@ -5,6 +5,7 @@ import type { Timer } from "../src/domain/timer.ts";
 
 class InMemoryTimerStorage implements TimerStorage {
   private timers: Timer[] = [];
+  private sequenceActive = false;
 
   async getTimers(): Promise<Timer[]> {
     return [...this.timers];
@@ -12,6 +13,14 @@ class InMemoryTimerStorage implements TimerStorage {
 
   async saveTimers(timers: Timer[]): Promise<void> {
     this.timers = [...timers];
+  }
+
+  async getSequenceActive(): Promise<boolean> {
+    return this.sequenceActive;
+  }
+
+  async setSequenceActive(active: boolean): Promise<void> {
+    this.sequenceActive = active;
   }
 }
 
@@ -37,9 +46,9 @@ test("TimerService adds and lists timers", async () => {
   assert.equal(t1.status, "idle");
   assert.equal(changeBroadcastCount, 1);
 
-  const list = await service.listTimers();
-  assert.equal(list.length, 1);
-  assert.equal(list[0].id, t1.id);
+  const res = await service.listTimers();
+  assert.equal(res.timers.length, 1);
+  assert.equal(res.timers[0].id, t1.id);
 });
 
 test("TimerService controls timer lifecycle (start, pause, reset, remove)", async () => {
@@ -76,8 +85,8 @@ test("TimerService controls timer lifecycle (start, pause, reset, remove)", asyn
   // Remove
   const removed = await service.removeTimer(timer.id);
   assert.equal(removed, true);
-  const list = await service.listTimers();
-  assert.equal(list.length, 0);
+  const res = await service.listTimers();
+  assert.equal(res.timers.length, 0);
 });
 
 test("TimerService reconciles expired timers on list", async () => {
@@ -97,11 +106,11 @@ test("TimerService reconciles expired timers on list", async () => {
 
   // Advance past expiry
   currentTime += 70000;
-  const list = await service.listTimers();
-  assert.equal(list.length, 1);
-  assert.equal(list[0].id, timer.id);
-  assert.equal(list[0].status, "completed");
-  assert.equal(list[0].remainingSeconds, 0);
+  const res = await service.listTimers();
+  assert.equal(res.timers.length, 1);
+  assert.equal(res.timers[0].id, timer.id);
+  assert.equal(res.timers[0].status, "completed");
+  assert.equal(res.timers[0].remainingSeconds, 0);
 });
 
 test("TimerService clearCompleted removes finished timers", async () => {
@@ -131,34 +140,39 @@ test("TimerService clearCompleted removes finished timers", async () => {
   const cleared = await service.clearCompleted();
   assert.equal(cleared, 1);
 
-  const remainingList = await service.listTimers();
-  assert.equal(remainingList.length, 1);
-  assert.equal(remainingList[0].title, "Т2");
+  const res = await service.listTimers();
+  assert.equal(res.timers.length, 1);
+  assert.equal(res.timers[0].title, "Т2");
 });
 
-test("TimerService startAllTimers starts all idle/paused timers", async () => {
+test("TimerService startSequence and automatic progression", async () => {
+  let currentTime = 1000000;
   const storage = new InMemoryTimerStorage();
-  const service = new TimerService(storage);
+  const service = new TimerService(
+    storage,
+    undefined,
+    () => currentTime,
+  );
 
-  await service.addTimer({ title: "T1", durationMinutes: 5, startImmediately: false });
-  await service.addTimer({ title: "T2", durationMinutes: 10, startImmediately: false });
+  const t1 = await service.addTimer({ title: "Шаг 1", durationMinutes: 1, startImmediately: false });
+  const t2 = await service.addTimer({ title: "Шаг 2", durationMinutes: 1, startImmediately: false });
 
-  const started = await service.startAllTimers();
-  assert.equal(started.length, 2);
-  assert.equal(started[0].status, "running");
-  assert.equal(started[1].status, "running");
-});
+  // Start sequence: t1 becomes running
+  const seqRes = await service.startSequence();
+  assert.equal(seqRes.isSequenceActive, true);
+  assert.equal(seqRes.timers[0].status, "running");
+  assert.equal(seqRes.timers[1].status, "idle");
 
-test("TimerService addBatchTimers adds an array of custom timers", async () => {
-  const storage = new InMemoryTimerStorage();
-  const service = new TimerService(storage);
+  // Advance 65s: t1 finishes, t2 automatically starts
+  currentTime += 65000;
+  const res2 = await service.listTimers();
+  assert.equal(res2.isSequenceActive, true);
+  assert.equal(res2.timers[0].status, "completed");
+  assert.equal(res2.timers[1].status, "running");
 
-  const batch = [
-    { title: "Блок 1", durationMinutes: 15 },
-    { title: "Блок 2", durationMinutes: 20 },
-  ];
-  const timers = await service.addBatchTimers(batch, false);
-  assert.equal(timers.length, 2);
-  assert.equal(timers[0].title, "Блок 1");
-  assert.equal(timers[1].title, "Блок 2");
+  // Advance 65s: t2 finishes, sequence completes
+  currentTime += 65000;
+  const res3 = await service.listTimers();
+  assert.equal(res3.isSequenceActive, false);
+  assert.equal(res3.timers[1].status, "completed");
 });

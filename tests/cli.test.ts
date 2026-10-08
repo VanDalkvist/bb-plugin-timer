@@ -2,15 +2,21 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { TimerService, type TimerStorage } from "../src/services/timer-service.ts";
 import type { Timer } from "../src/domain/timer.ts";
-import { formatTime } from "../src/domain/timer.ts";
 
 class MockStorage implements TimerStorage {
   private timers: Timer[] = [];
+  private sequenceActive = false;
   async getTimers(): Promise<Timer[]> {
     return [...this.timers];
   }
   async saveTimers(timers: Timer[]): Promise<void> {
     this.timers = [...timers];
+  }
+  async getSequenceActive(): Promise<boolean> {
+    return this.sequenceActive;
+  }
+  async setSequenceActive(active: boolean): Promise<void> {
+    this.sequenceActive = active;
   }
 }
 
@@ -30,8 +36,8 @@ test("CLI flow: add, list, pause, reset, remove", async () => {
 
   // 2. List
   const list1 = await service.listTimers();
-  assert.equal(list1.length, 1);
-  assert.equal(list1[0].id, t.id);
+  assert.equal(list1.timers.length, 1);
+  assert.equal(list1.timers[0].id, t.id);
 
   // 3. Pause
   const paused = await service.pauseTimer(t.id);
@@ -46,5 +52,5 @@ test("CLI flow: add, list, pause, reset, remove", async () => {
   const removed = await service.removeTimer(t.id);
   assert.equal(removed, true);
   const list2 = await service.listTimers();
-  assert.equal(list2.length, 0);
+  assert.equal(list2.timers.length, 0);
 });

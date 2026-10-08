@@ -214,3 +214,77 @@ export function calculateProgressPercent(
   const percent = (elapsed / timer.totalDurationSeconds) * 100;
   return Math.min(100, Math.max(0, Math.round(percent * 10) / 10));
 }
+
+// Sequential Execution Helpers
+export function findNextPendingTimerIndex(timers: Timer[]): number {
+  return timers.findIndex(
+    (t) => t.status === "idle" || t.status === "paused",
+  );
+}
+
+export interface SequentialReconciliationResult {
+  timers: Timer[];
+  isSequenceActive: boolean;
+  nextStartedTimer: Timer | null;
+}
+
+export function reconcileSequentialTimers(
+  timers: Timer[],
+  isSequenceActive: boolean,
+  nowMs = Date.now(),
+): SequentialReconciliationResult {
+  if (timers.length === 0) {
+    return { timers: [], isSequenceActive: false, nextStartedTimer: null };
+  }
+
+  let runningTimerCompleted = false;
+
+  // Reconcile each timer
+  const reconciled = timers.map((timer) => {
+    if (timer.status !== "running") return timer;
+    const updated = reconcileTimerState(timer, nowMs);
+    if (updated.status === "completed" && timer.status === "running") {
+      runningTimerCompleted = true;
+    }
+    return updated;
+  });
+
+  if (!isSequenceActive) {
+    return {
+      timers: reconciled,
+      isSequenceActive: false,
+      nextStartedTimer: null,
+    };
+  }
+
+  // Check if any timer is still running
+  const currentlyRunning = reconciled.find((t) => t.status === "running");
+  if (currentlyRunning) {
+    return {
+      timers: reconciled,
+      isSequenceActive: true,
+      nextStartedTimer: null,
+    };
+  }
+
+  // If no timer is running and sequence is active:
+  // Find next pending timer in list
+  const nextPendingIdx = findNextPendingTimerIndex(reconciled);
+  if (nextPendingIdx !== -1) {
+    const nextTimer = startTimer(reconciled[nextPendingIdx]!, nowMs);
+    const updatedList = [...reconciled];
+    updatedList[nextPendingIdx] = nextTimer;
+    return {
+      timers: updatedList,
+      isSequenceActive: true,
+      nextStartedTimer: nextTimer,
+    };
+  }
+
+  // No pending timers left in sequence
+  return {
+    timers: reconciled,
+    isSequenceActive: false,
+    nextStartedTimer: null,
+  };
+}

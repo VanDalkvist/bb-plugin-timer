@@ -18,7 +18,10 @@ export const timerSchema = z.object({
 export const rpcContract = defineRpcContract({
   timers_list: {
     input: z.null(),
-    output: z.object({ timers: z.array(timerSchema) }),
+    output: z.object({
+      timers: z.array(timerSchema),
+      isSequenceActive: z.boolean().default(false),
+    }),
   },
   timers_add: {
     input: z.object({
@@ -56,21 +59,19 @@ export const rpcContract = defineRpcContract({
     input: z.null(),
     output: z.object({ clearedCount: z.number() }),
   },
-  timers_start_all: {
+  timers_start_sequence: {
     input: z.null(),
-    output: z.object({ timers: z.array(timerSchema) }),
-  },
-  timers_add_batch: {
-    input: z.object({
-      timers: z.array(
-        z.object({
-          title: z.string().trim().min(1).max(100),
-          durationMinutes: z.number().positive(),
-        }),
-      ),
-      startImmediately: z.boolean().optional(),
+    output: z.object({
+      ok: z.boolean(),
+      isSequenceActive: z.boolean(),
     }),
-    output: z.object({ timers: z.array(timerSchema) }),
+  },
+  timers_stop_sequence: {
+    input: z.null(),
+    output: z.object({
+      ok: z.boolean(),
+      isSequenceActive: z.boolean(),
+    }),
   },
 });
 
@@ -90,6 +91,14 @@ class KvTimerStorage implements TimerStorage {
   async saveTimers(timers: Timer[]): Promise<void> {
     await this.bb.storage.kv.set("timers", timers);
   }
+
+  async getSequenceActive(): Promise<boolean> {
+    return (await this.bb.storage.kv.get<boolean>("timers-sequence-active")) ?? false;
+  }
+
+  async setSequenceActive(active: boolean): Promise<void> {
+    await this.bb.storage.kv.set("timers-sequence-active", active);
+  }
 }
 
 export default async function plugin(bb: BbPluginApi) {
@@ -102,8 +111,7 @@ export default async function plugin(bb: BbPluginApi) {
 
   bb.rpc.register(rpcContract, {
     async timers_list() {
-      const timers = await service.listTimers();
-      return { timers };
+      return await service.listTimers();
     },
     async timers_add(input) {
       return await service.addTimer(input);
@@ -131,13 +139,13 @@ export default async function plugin(bb: BbPluginApi) {
       const clearedCount = await service.clearCompleted();
       return { clearedCount };
     },
-    async timers_start_all() {
-      const timers = await service.startAllTimers();
-      return { timers };
+    async timers_start_sequence() {
+      const res = await service.startSequence();
+      return { ok: true, isSequenceActive: res.isSequenceActive };
     },
-    async timers_add_batch(input) {
-      const timers = await service.addBatchTimers(input.timers, input.startImmediately ?? false);
-      return { timers };
+    async timers_stop_sequence() {
+      const res = await service.stopSequence();
+      return { ok: true, isSequenceActive: res.isSequenceActive };
     },
   });
 
@@ -152,8 +160,18 @@ export default async function plugin(bb: BbPluginApi) {
       },
       {
         name: "add",
-        summary: "Create and immediately start a timer for N minutes",
+        summary: "Create a timer for N minutes and add it to queue",
         usage: "bb timer add <minutes> [name]",
+      },
+      {
+        name: "sequence",
+        summary: "Start all timers sequentially in order",
+        usage: "bb timer sequence",
+      },
+      {
+        name: "stop-sequence",
+        summary: "Stop sequential chain mode",
+        usage: "bb timer stop-sequence",
       },
       {
         name: "pause",
@@ -180,22 +198,12 @@ export default async function plugin(bb: BbPluginApi) {
         summary: "Clear all completed timers",
         usage: "bb timer clear",
       },
-      {
-        name: "start-all",
-        summary: "Start or resume all non-running timers",
-        usage: "bb timer start-all",
-      },
-      {
-        name: "batch",
-        summary: "Load and add timers from a local JSON file [ { title, durationMinutes } ]",
-        usage: "bb timer batch <path/to/file.json> [--start]",
-      },
     ],
     async run(argv) {
       const subcommand = argv[0];
 
       if (!subcommand || subcommand === "list") {
-        const timers = await service.listTimers();
+        const { timers, isSequenceActive } = await service.listTimers();
         if (timers.length === 0) {
           return {
             exitCode: 0,
@@ -203,7 +211,7 @@ export default async function plugin(bb: BbPluginApi) {
           };
         }
 
-        const lines = timers.map((t) => {
+        const lines = timers.map((t, index) => {
           const statusMap: Record<string, string> = {
             running: "RUNNING",
             paused: "PAUSED",
@@ -212,12 +220,32 @@ export default async function plugin(bb: BbPluginApi) {
           };
           const badge = statusMap[t.status] ?? t.status.toUpperCase();
           const rem = formatTime(t.remainingSeconds);
-          return `[${badge}] ${t.id.padEnd(8)} "${t.title}" — ${rem} left (total ${formatTime(t.totalDurationSeconds)})`;
+          return `${index + 1}. [${badge}] ${t.id.padEnd(8)} "${t.title}" — ${rem} left (total ${formatTime(t.totalDurationSeconds)})`;
         });
+
+        const header = isSequenceActive
+          ? "Sequential chain is ACTIVE:\n"
+          : "";
 
         return {
           exitCode: 0,
-          stdout: lines.join("\n") + "\n",
+          stdout: header + lines.join("\n") + "\n",
+        };
+      }
+
+      if (subcommand === "sequence" || subcommand === "run-all" || subcommand === "start-all") {
+        const res = await service.startSequence();
+        return {
+          exitCode: 0,
+          stdout: `Sequential chain started! Running ${res.timers.length} timer(s) in order.\n`,
+        };
+      }
+
+      if (subcommand === "stop-sequence") {
+        await service.stopSequence();
+        return {
+          exitCode: 0,
+          stdout: "Sequential chain stopped.\n",
         };
       }
 
@@ -238,7 +266,7 @@ export default async function plugin(bb: BbPluginApi) {
         });
         return {
           exitCode: 0,
-          stdout: `Started timer "${timer.title}" (${formatTime(timer.remainingSeconds)}) [id: ${timer.id}]\n`,
+          stdout: `Added timer "${timer.title}" (${formatTime(timer.remainingSeconds)}) [id: ${timer.id}]\n`,
         };
       }
 
@@ -334,52 +362,9 @@ export default async function plugin(bb: BbPluginApi) {
         };
       }
 
-      if (subcommand === "start-all") {
-        const started = await service.startAllTimers();
-        return {
-          exitCode: 0,
-          stdout: `Started/resumed ${started.length} timer(s).\n`,
-        };
-      }
-
-      if (subcommand === "batch") {
-        const filePath = argv[1];
-        if (!filePath) {
-          return {
-            exitCode: 1,
-            stderr: "Usage: bb timer batch <path/to/file.json> [--start]\n",
-          };
-        }
-        try {
-          const fs = await import("node:fs/promises");
-          const path = await import("node:path");
-          const resolved = path.resolve(process.cwd(), filePath);
-          const raw = await fs.readFile(resolved, "utf-8");
-          const parsed = JSON.parse(raw);
-          if (!Array.isArray(parsed)) {
-            return {
-              exitCode: 1,
-              stderr: "Invalid JSON: expected an array of { title, durationMinutes }\n",
-            };
-          }
-          const startImmediately = argv.includes("--start");
-          const created = await service.addBatchTimers(parsed, startImmediately);
-          const actionStr = startImmediately ? "and started" : "(idle, ready to start)";
-          return {
-            exitCode: 0,
-            stdout: `Loaded and added ${created.length} timer(s) from "${filePath}" ${actionStr}.\n`,
-          };
-        } catch (err) {
-          return {
-            exitCode: 1,
-            stderr: `Failed to load batch file: ${err instanceof Error ? err.message : String(err)}\n`,
-          };
-        }
-      }
-
       return {
         exitCode: 1,
-        stderr: `Unknown subcommand "${subcommand}". Available: list, add, start, pause, reset, remove, clear, start-all, batch\n`,
+        stderr: `Unknown subcommand "${subcommand}". Available: list, add, sequence, stop-sequence, start, pause, reset, remove, clear\n`,
       };
     },
   });

@@ -12,6 +12,8 @@ test("rpcContract defines all required methods and validates schemas", () => {
   assert.ok("timers_rename" in rpcContract);
   assert.ok("timers_remove" in rpcContract);
   assert.ok("timers_clear_completed" in rpcContract);
+  assert.ok("timers_start_sequence" in rpcContract);
+  assert.ok("timers_stop_sequence" in rpcContract);
 
   // Validate timers_add input
   const validAdd = rpcContract.timers_add.input.safeParse({

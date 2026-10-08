@@ -7,6 +7,7 @@ import { Icon } from "../../components/ui/icon.tsx";
 export function TimersNavPage() {
   const {
     timers,
+    isSequenceActive,
     activeRunningCount,
     completedCount,
     addTimer,
@@ -17,7 +18,8 @@ export function TimersNavPage() {
     rename,
     remove,
     clearCompleted,
-    startAll,
+    startSequence,
+    stopSequence,
   } = useTimers({ soundEnabled: false });
 
   return (
@@ -36,17 +38,29 @@ export function TimersNavPage() {
           </div>
 
           <div className="flex items-center gap-2">
-            {timers.some((t) => t.status === "idle" || t.status === "paused") && (
-              <Button
-                variant="default"
-                size="sm"
-                onClick={startAll}
-                className="text-xs gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white"
-                title="Стартануть все неактивные таймеры"
-              >
-                <Icon name="Play" className="size-3.5" />
-                <span>Стартануть все</span>
-              </Button>
+            {timers.length > 1 && (
+              isSequenceActive ? (
+                <Button
+                  variant="default"
+                  size="sm"
+                  onClick={stopSequence}
+                  className="text-xs gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white"
+                >
+                  <Icon name="Pause" className="size-3.5" />
+                  <span>Остановить цепочку</span>
+                </Button>
+              ) : (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onClick={startSequence}
+                  className="text-xs gap-1.5"
+                  title="Запустить все таймеры по очереди"
+                >
+                  <Icon name="Play" className="size-3.5 fill-current" />
+                  <span>Запустить последовательно</span>
+                </Button>
+              )
             )}
             <Button
               variant="outline"
@@ -92,9 +106,14 @@ export function TimersNavPage() {
               <span className="rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground">
                 {timers.length}
               </span>
+              {isSequenceActive && (
+                <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-xs font-medium text-emerald-500 animate-pulse">
+                  ▶▶ Цепочка активна
+                </span>
+              )}
             </h2>
 
-            {activeRunningCount > 0 && (
+            {activeRunningCount > 0 && !isSequenceActive && (
               <span className="text-xs text-emerald-500 font-medium">
                 {activeRunningCount} активно сейчас
               </span>
@@ -107,10 +126,11 @@ export function TimersNavPage() {
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-              {timers.map((timer) => (
+              {timers.map((timer, idx) => (
                 <TimerCard
                   key={timer.id}
                   timer={timer}
+                  index={idx}
                   onStart={start}
                   onPause={pause}
                   onReset={reset}

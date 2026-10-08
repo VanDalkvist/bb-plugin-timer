@@ -8,12 +8,15 @@ import {
   resetTimer,
   addExtraTime,
   renameTimer,
-  reconcileTimerState,
+  reconcileSequentialTimers,
+  findNextPendingTimerIndex,
 } from "../domain/timer.ts";
 
 export interface TimerStorage {
   getTimers(): Promise<Timer[]>;
   saveTimers(timers: Timer[]): Promise<void>;
+  getSequenceActive?(): Promise<boolean>;
+  setSequenceActive?(active: boolean): Promise<void>;
 }
 
 export class TimerService {
@@ -31,25 +34,38 @@ export class TimerService {
     this.nowProvider = nowProvider;
   }
 
-  async listTimers(): Promise<Timer[]> {
+  async listTimers(): Promise<{ timers: Timer[]; isSequenceActive: boolean }> {
     const rawTimers = await this.storage.getTimers();
+    const seqActive = (await this.storage.getSequenceActive?.()) ?? false;
     const now = this.nowProvider();
+
+    const result = reconcileSequentialTimers(rawTimers, seqActive, now);
     let hasChanges = false;
 
-    const reconciled = rawTimers.map((t) => {
-      const updated = reconcileTimerState(t, now);
-      if (updated.status !== t.status || updated.remainingSeconds !== t.remainingSeconds) {
-        hasChanges = true;
-      }
-      return updated;
-    });
-
-    if (hasChanges) {
-      await this.storage.saveTimers(reconciled);
-      this.onTimersChanged?.(reconciled);
+    if (result.isSequenceActive !== seqActive) {
+      hasChanges = true;
+      await this.storage.setSequenceActive?.(result.isSequenceActive);
     }
 
-    return reconciled;
+    for (let i = 0; i < rawTimers.length; i++) {
+      const orig = rawTimers[i]!;
+      const rec = result.timers[i]!;
+      if (
+        orig.status !== rec.status ||
+        orig.remainingSeconds !== rec.remainingSeconds ||
+        orig.targetEndAt !== rec.targetEndAt
+      ) {
+        hasChanges = true;
+        break;
+      }
+    }
+
+    if (hasChanges) {
+      await this.storage.saveTimers(result.timers);
+      this.onTimersChanged?.(result.timers);
+    }
+
+    return { timers: result.timers, isSequenceActive: result.isSequenceActive };
   }
 
   async addTimer(input: CreateTimerInput): Promise<Timer> {
@@ -58,7 +74,8 @@ export class TimerService {
     const newTimer = createTimer(id, input, now);
 
     const existing = await this.storage.getTimers();
-    const updated = [newTimer, ...existing];
+    // Append to list so sequential order is natural (top to bottom)
+    const updated = [...existing, newTimer];
     await this.storage.saveTimers(updated);
     this.onTimersChanged?.(updated);
     return newTimer;
@@ -153,34 +170,43 @@ export class TimerService {
     return clearedCount;
   }
 
-  async startAllTimers(): Promise<Timer[]> {
-    const existing = await this.storage.getTimers();
+  async startSequence(): Promise<{ timers: Timer[]; isSequenceActive: boolean }> {
+    let existing = await this.storage.getTimers();
     const now = this.nowProvider();
-    const updated = existing.map((t) => {
-      if (t.status === "idle" || t.status === "paused") {
-        return startTimer(t, now);
+
+    if (existing.length === 0) {
+      return { timers: [], isSequenceActive: false };
+    }
+
+    // If all timers were completed, reset them all
+    const allCompleted = existing.every((t) => t.status === "completed");
+    if (allCompleted) {
+      existing = existing.map((t) => resetTimer(t));
+    }
+
+    // Check if any timer is running already
+    const running = existing.find((t) => t.status === "running");
+    let updated = existing;
+
+    if (!running) {
+      const nextIdx = findNextPendingTimerIndex(existing);
+      if (nextIdx !== -1) {
+        const started = startTimer(existing[nextIdx]!, now);
+        updated = [...existing];
+        updated[nextIdx] = started;
       }
-      return t;
-    });
+    }
+
     await this.storage.saveTimers(updated);
+    await this.storage.setSequenceActive?.(true);
     this.onTimersChanged?.(updated);
-    return updated;
+    return { timers: updated, isSequenceActive: true };
   }
 
-  async addBatchTimers(
-    batch: Array<{ title: string; durationMinutes: number }>,
-    startImmediately = false,
-  ): Promise<Timer[]> {
-    const now = this.nowProvider();
-    const newTimers: Timer[] = batch.map((item) => {
-      const id = randomUUID().slice(0, 8);
-      return createTimer(id, { ...item, startImmediately }, now);
-    });
-
+  async stopSequence(): Promise<{ timers: Timer[]; isSequenceActive: boolean }> {
     const existing = await this.storage.getTimers();
-    const updated = [...newTimers, ...existing];
-    await this.storage.saveTimers(updated);
-    this.onTimersChanged?.(updated);
-    return newTimers;
+    await this.storage.setSequenceActive?.(false);
+    this.onTimersChanged?.(existing);
+    return { timers: existing, isSequenceActive: false };
   }
 }

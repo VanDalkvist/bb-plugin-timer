@@ -3,9 +3,8 @@ import { useRealtime, useRpc } from "@get-bb/plugin-sdk/app";
 import type { rpcContract } from "../../server.ts";
 import {
   type Timer,
-  computeRemainingSeconds,
+  reconcileSequentialTimers,
   formatTime,
-  calculateProgressPercent,
 } from "../domain/timer.ts";
 import { playTimerCompletionChime } from "../lib/sound.ts";
 
@@ -17,11 +16,13 @@ export function useTimers(options: UseTimersOptions = {}) {
   const { soundEnabled = true } = options;
   const rpc = useRpc<typeof rpcContract>();
   const [timers, setTimers] = useState<Timer[]>([]);
+  const [isSequenceActive, setIsSequenceActive] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   // Keep track of which timers we already sounded an alert for
   const completedAlertedRef = useRef<Set<string>>(new Set());
+  const isSequenceActiveRef = useRef(false);
 
   const report = useCallback((cause: unknown) => {
     setError(cause instanceof Error ? cause.message : String(cause));
@@ -32,6 +33,8 @@ export function useTimers(options: UseTimersOptions = {}) {
       .call("timers_list")
       .then((res) => {
         setTimers(res.timers);
+        setIsSequenceActive(res.isSequenceActive);
+        isSequenceActiveRef.current = res.isSequenceActive;
         setIsLoading(false);
         setError(null);
       })
@@ -48,53 +51,46 @@ export function useTimers(options: UseTimersOptions = {}) {
   // Realtime subscription
   useRealtime("timers-changed", fetchTimers);
 
-  // Local tick interval for smooth second countdowns
+  // Local tick interval for smooth second countdowns and sequential transitions
   useEffect(() => {
     const interval = setInterval(() => {
       setTimers((currentTimers) => {
         const now = Date.now();
-        let changed = false;
-        let newlyCompleted = false;
+        const prevSeq = isSequenceActiveRef.current;
 
-        const updated = currentTimers.map((timer) => {
-          if (timer.status !== "running") return timer;
+        const result = reconcileSequentialTimers(currentTimers, prevSeq, now);
 
-          const rem = computeRemainingSeconds(timer, now);
-          if (rem <= 0) {
-            changed = true;
-            if (!completedAlertedRef.current.has(timer.id)) {
-              completedAlertedRef.current.add(timer.id);
-              newlyCompleted = true;
+        // Check if any timer newly completed
+        for (const timer of result.timers) {
+          if (timer.status === "completed" && !completedAlertedRef.current.has(timer.id)) {
+            completedAlertedRef.current.add(timer.id);
+            if (soundEnabled) {
+              playTimerCompletionChime();
             }
-            return {
-              ...timer,
-              remainingSeconds: 0,
-              status: "completed" as const,
-              targetEndAt: null,
-            };
           }
-
-          if (rem !== timer.remainingSeconds) {
-            changed = true;
-            return {
-              ...timer,
-              remainingSeconds: rem,
-            };
-          }
-
-          return timer;
-        });
-
-        if (newlyCompleted && soundEnabled) {
-          playTimerCompletionChime();
         }
 
-        return changed ? updated : currentTimers;
+        // Check if sequence state changed
+        if (result.isSequenceActive !== prevSeq) {
+          isSequenceActiveRef.current = result.isSequenceActive;
+          setIsSequenceActive(result.isSequenceActive);
+        }
+
+        // If next timer started in sequence, sync with server
+        if (result.nextStartedTimer) {
+          if (soundEnabled) {
+            playTimerCompletionChime();
+          }
+          // Server reconciliation via rpc
+          rpc.call("timers_list").catch(() => {});
+        }
+
+        return result.timers;
       });
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [soundEnabled]);
+  }, [soundEnabled, rpc]);
 
   const addTimer = useCallback(
     async (title: string, durationMinutes: number, startImmediately = true) => {
@@ -104,7 +100,7 @@ export function useTimers(options: UseTimersOptions = {}) {
           durationMinutes,
           startImmediately,
         });
-        setTimers((prev) => [newTimer, ...prev]);
+        setTimers((prev) => [...prev, newTimer]);
         return newTimer;
       } catch (err) {
         report(err);
@@ -209,37 +205,43 @@ export function useTimers(options: UseTimersOptions = {}) {
     }
   }, [rpc, report]);
 
-  const startAll = useCallback(async () => {
+  const startSequence = useCallback(async () => {
     try {
-      const res = await rpc.call("timers_start_all");
-      setTimers(res.timers);
+      const res = await rpc.call("timers_start_sequence");
+      setIsSequenceActive(res.isSequenceActive);
+      isSequenceActiveRef.current = res.isSequenceActive;
+      fetchTimers();
     } catch (err) {
       report(err);
     }
-  }, [rpc, report]);
+  }, [rpc, fetchTimers, report]);
 
-  const addBatch = useCallback(
-    async (batch: Array<{ title: string; durationMinutes: number }>, startImmediately = false) => {
-      try {
-        await rpc.call("timers_add_batch", { timers: batch, startImmediately });
-        fetchTimers();
-      } catch (err) {
-        report(err);
-      }
-    },
-    [rpc, report, fetchTimers],
-  );
+  const stopSequence = useCallback(async () => {
+    try {
+      const res = await rpc.call("timers_stop_sequence");
+      setIsSequenceActive(res.isSequenceActive);
+      isSequenceActiveRef.current = res.isSequenceActive;
+      fetchTimers();
+    } catch (err) {
+      report(err);
+    }
+  }, [rpc, fetchTimers, report]);
 
   const activeRunningCount = timers.filter((t) => t.status === "running").length;
   const completedCount = timers.filter((t) => t.status === "completed").length;
 
-  // Find the running timer with the least remaining seconds
-  const earliestRunning = timers
-    .filter((t) => t.status === "running")
-    .sort((a, b) => a.remainingSeconds - b.remainingSeconds)[0] ?? null;
+  // The currently running timer or earliest ending timer
+  const currentRunningTimer = timers.find((t) => t.status === "running") ?? null;
+  const earliestRunning =
+    currentRunningTimer ??
+    timers
+      .filter((t) => t.status === "running")
+      .sort((a, b) => a.remainingSeconds - b.remainingSeconds)[0] ??
+    null;
 
   return {
     timers,
+    isSequenceActive,
     isLoading,
     error,
     activeRunningCount,
@@ -247,14 +249,14 @@ export function useTimers(options: UseTimersOptions = {}) {
     earliestRunning,
     addTimer,
     start,
-    startAll,
-    addBatch,
     pause,
     reset,
     addTime,
     rename,
     remove,
     clearCompleted,
+    startSequence,
+    stopSequence,
     refetch: fetchTimers,
   };
 }

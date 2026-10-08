@@ -11,6 +11,8 @@ import {
   renameTimer,
   formatTime,
   calculateProgressPercent,
+  reconcileSequentialTimers,
+  findNextPendingTimerIndex,
 } from "../src/domain/timer.ts";
 
 test("createTimer creates idle timer by default", () => {
@@ -166,4 +168,36 @@ test("calculateProgressPercent computes percentage of elapsed time", () => {
   assert.equal(calculateProgressPercent(timer, now), 0);
   assert.equal(calculateProgressPercent(timer, now + 300000), 50); // half elapsed
   assert.equal(calculateProgressPercent(timer, now + 600000), 100); // fully elapsed
+});
+
+test("Sequential Execution: automatically transitions to next timer when current finishes", () => {
+  const now = 1000000;
+  const t1 = createTimer("1", { title: "Этап 1", durationMinutes: 1, startImmediately: true }, now);
+  const t2 = createTimer("2", { title: "Этап 2", durationMinutes: 1, startImmediately: false }, now);
+  const t3 = createTimer("3", { title: "Этап 3", durationMinutes: 1, startImmediately: false }, now);
+
+  const list = [t1, t2, t3];
+  assert.equal(list[0].status, "running");
+  assert.equal(list[1].status, "idle");
+
+  // Advance 65 seconds: t1 should finish, and t2 should automatically start!
+  const res1 = reconcileSequentialTimers(list, true, now + 65000);
+  assert.equal(res1.isSequenceActive, true);
+  assert.equal(res1.timers[0].status, "completed");
+  assert.equal(res1.timers[1].status, "running");
+  assert.equal(res1.timers[2].status, "idle");
+  assert.equal(res1.nextStartedTimer?.id, "2");
+
+  // Advance another 65 seconds: t2 finishes, t3 starts!
+  const res2 = reconcileSequentialTimers(res1.timers, true, now + 130000);
+  assert.equal(res2.isSequenceActive, true);
+  assert.equal(res2.timers[1].status, "completed");
+  assert.equal(res2.timers[2].status, "running");
+  assert.equal(res2.nextStartedTimer?.id, "3");
+
+  // Advance another 65 seconds: t3 finishes, sequence ends!
+  const res3 = reconcileSequentialTimers(res2.timers, true, now + 195000);
+  assert.equal(res3.isSequenceActive, false);
+  assert.equal(res3.timers[2].status, "completed");
+  assert.equal(res3.nextStartedTimer, null);
 });

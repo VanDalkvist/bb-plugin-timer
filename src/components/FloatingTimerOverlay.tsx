@@ -56,6 +56,7 @@ export function FloatingTimerOverlay() {
 
   const {
     timers,
+    isSequenceActive,
     activeRunningCount,
     completedCount,
     earliestRunning,
@@ -67,6 +68,8 @@ export function FloatingTimerOverlay() {
     rename,
     remove,
     clearCompleted,
+    startSequence,
+    stopSequence,
   } = useTimers({ soundEnabled });
 
   // Dragging state
@@ -176,7 +179,6 @@ export function FloatingTimerOverlay() {
       } catch {}
 
       if (hasMovedRef.current) {
-        // Was a real drag: persist position
         setPosition((currentPos) => {
           if (currentPos) {
             try {
@@ -186,14 +188,12 @@ export function FloatingTimerOverlay() {
           return currentPos;
         });
       } else {
-        // Was a clean click without moving: execute click action
         onClickAction?.();
       }
     },
     [],
   );
 
-  // If user has timers but widget was closed, show pill if a timer completes
   useEffect(() => {
     if (completedCount > 0 && !isVisible) {
       setIsVisible(true);
@@ -204,9 +204,9 @@ export function FloatingTimerOverlay() {
     return null;
   }
 
-  // Calculate clamped positioning style to avoid rendering off-screen when expanding
-  const targetWidth = isExpanded ? 384 : 220;
-  const targetHeight = isExpanded ? 450 : 44;
+  // Calculate clamped positioning style to avoid rendering off-screen
+  const targetWidth = isExpanded ? 384 : 240;
+  const targetHeight = isExpanded ? 480 : 44;
 
   const stylePos: React.CSSProperties = position
     ? {
@@ -222,26 +222,26 @@ export function FloatingTimerOverlay() {
         zIndex: 9999,
       };
 
-  // 1. Minimized Floating Pill Mode (Fully Draggable & Click-to-Expand)
+  // 1. Minimized Floating Pill Mode
   if (!isExpanded) {
     return (
       <div
         ref={cardRef}
         style={stylePos}
-        onPointerDown={(e) => startDrag(e, 220, 44)}
+        onPointerDown={(e) => startDrag(e, 240, 44)}
         onPointerMove={onPointerMove}
         onPointerUp={(e) => onPointerUp(e, () => handleSetExpanded(true))}
         role="button"
         tabIndex={0}
-        title="Зажмите, чтобы перетащить; нажмите, чтобы открыть таймеры"
+        title="Зажмите, чтобы перетащить; нажмите, чтобы открыть окно"
         className={cn(
-          "touch-none select-none cursor-grab active:cursor-grabbing group flex items-center gap-2 rounded-full border border-border bg-card/95 px-3.5 py-2 shadow-lg backdrop-blur-md transition-[shadow,background-color] duration-150 hover:bg-accent/20 hover:shadow-xl text-xs font-medium text-foreground",
+          "touch-none select-none cursor-grab active:cursor-grabbing group flex items-center gap-2 rounded-full border border-border bg-card/95 px-3.5 py-2 shadow-lg backdrop-blur-md transition-[shadow,background-color] duration-150 hover:bg-accent/20 hover:shadow-xl text-xs font-medium text-foreground max-w-[320px]",
           completedCount > 0 && "border-amber-500/60 bg-amber-500/10 text-amber-500",
           activeRunningCount > 0 && "border-primary/50",
         )}
       >
         {/* Grip indicator */}
-        <div className="flex flex-col gap-0.5 opacity-40 group-hover:opacity-80 transition-opacity">
+        <div className="flex flex-col gap-0.5 opacity-40 group-hover:opacity-80 transition-opacity shrink-0">
           <div className="flex gap-0.5">
             <span className="size-0.5 rounded-full bg-current" />
             <span className="size-0.5 rounded-full bg-current" />
@@ -254,32 +254,39 @@ export function FloatingTimerOverlay() {
 
         {completedCount > 0 ? (
           <>
-            <span className="size-2 animate-ping rounded-full bg-amber-500" />
-            <span>🔔 Готов таймер! ({completedCount})</span>
+            <span className="size-2 animate-ping rounded-full bg-amber-500 shrink-0" />
+            <span className="truncate">🔔 Готов таймер! ({completedCount})</span>
           </>
         ) : earliestRunning ? (
-          <>
-            <span className="size-2 animate-pulse rounded-full bg-emerald-500" />
-            <span className="truncate max-w-[130px]">{earliestRunning.title}:</span>
-            <span className="font-mono font-bold text-primary">
+          <div className="flex items-center gap-1.5 min-w-0">
+            <span className="size-2 animate-pulse rounded-full bg-emerald-500 shrink-0" />
+            {isSequenceActive && (
+              <span className="text-[10px] text-primary/80 font-mono font-bold shrink-0">
+                ▶▶
+              </span>
+            )}
+            <span className="truncate max-w-[130px] font-medium text-foreground">
+              {earliestRunning.title}:
+            </span>
+            <span className="font-mono font-bold text-primary shrink-0">
               {formatTime(earliestRunning.remainingSeconds)}
             </span>
-            {activeRunningCount > 1 && (
-              <span className="rounded-full bg-muted px-1.5 py-0.2 text-[10px] text-muted-foreground">
+            {activeRunningCount > 1 && !isSequenceActive && (
+              <span className="rounded-full bg-muted px-1.5 py-0.2 text-[10px] text-muted-foreground shrink-0">
                 +{activeRunningCount - 1}
               </span>
             )}
-          </>
+          </div>
         ) : (
-          <>
-            <Icon name="Timer" className="size-4 text-muted-foreground group-hover:text-foreground" />
+          <div className="flex items-center gap-1.5">
+            <Icon name="Timer" className="size-4 text-muted-foreground group-hover:text-foreground shrink-0" />
             <span>Таймеры {timers.length > 0 && `(${timers.length})`}</span>
-          </>
+          </div>
         )}
 
         <Icon
           name="Maximize2"
-          className="size-3 text-muted-foreground/60 transition-transform group-hover:text-foreground ml-0.5"
+          className="size-3 text-muted-foreground/60 transition-transform group-hover:text-foreground ml-auto shrink-0"
         />
       </div>
     );
@@ -318,11 +325,16 @@ export function FloatingTimerOverlay() {
           </div>
           <Icon name="Timer" className="size-4 text-primary" />
           <span className="text-xs font-semibold text-foreground">Таймеры</span>
-          {activeRunningCount > 0 && (
+          {isSequenceActive ? (
+            <span className="rounded-full bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-medium text-emerald-500 animate-pulse flex items-center gap-1">
+              <span>▶▶</span>
+              <span>Цепочка</span>
+            </span>
+          ) : activeRunningCount > 0 ? (
             <span className="rounded-full bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-medium text-emerald-500">
               {activeRunningCount} активен
             </span>
-          )}
+          ) : null}
           {completedCount > 0 && (
             <span className="rounded-full bg-amber-500/20 px-1.5 py-0.5 text-[10px] font-medium text-amber-500">
               {completedCount} готов
@@ -412,6 +424,34 @@ export function FloatingTimerOverlay() {
           </div>
         )}
 
+        {/* Sequential Mode Button */}
+        {timers.length > 1 && (
+          <div>
+            {isSequenceActive ? (
+              <Button
+                variant="default"
+                size="sm"
+                onClick={stopSequence}
+                className="w-full h-8 text-xs gap-1.5 font-medium bg-emerald-600 hover:bg-emerald-500 text-white shadow-sm"
+              >
+                <Icon name="Pause" className="size-3.5" />
+                <span>Идёт цепочка таймеров — Нажмите для остановки</span>
+              </Button>
+            ) : (
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={startSequence}
+                className="w-full h-8 text-xs gap-1.5 font-medium hover:bg-accent/40 shadow-sm border border-border/60"
+                title="Запустить все таймеры по очереди: когда завершится один, автоматически стартует следующий"
+              >
+                <Icon name="Play" className="size-3.5 fill-current text-primary" />
+                <span>Запустить все последовательно</span>
+              </Button>
+            )}
+          </div>
+        )}
+
         {/* Timers List */}
         {timers.length === 0 ? (
           <div className="rounded-xl border border-dashed border-border py-8 text-center text-xs text-muted-foreground">
@@ -421,10 +461,11 @@ export function FloatingTimerOverlay() {
           </div>
         ) : (
           <div className="space-y-2.5">
-            {timers.map((timer) => (
+            {timers.map((timer, idx) => (
               <TimerCard
                 key={timer.id}
                 timer={timer}
+                index={idx}
                 onStart={start}
                 onPause={pause}
                 onReset={reset}
@@ -439,7 +480,12 @@ export function FloatingTimerOverlay() {
 
       {/* Footer Status Bar */}
       <div className="border-t border-border bg-muted/20 px-3 py-2 flex items-center justify-between text-[11px] text-muted-foreground shrink-0">
-        <span>Всего: {timers.length}</span>
+        <div className="flex items-center gap-1.5">
+          <span>Всего: {timers.length}</span>
+          {isSequenceActive && (
+            <span className="text-emerald-500 font-semibold">• Цепочка активна</span>
+          )}
+        </div>
         <div className="flex items-center gap-2">
           {completedCount > 0 && (
             <button

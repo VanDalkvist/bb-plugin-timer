@@ -17,6 +17,7 @@ export function TimersNavPage() {
     rename,
     remove,
     clearCompleted,
+    startAll,
   } = useTimers({ soundEnabled: false });
 
   return (
@@ -35,6 +36,18 @@ export function TimersNavPage() {
           </div>
 
           <div className="flex items-center gap-2">
+            {timers.some((t) => t.status === "idle" || t.status === "paused") && (
+              <Button
+                variant="default"
+                size="sm"
+                onClick={startAll}
+                className="text-xs gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white"
+                title="Стартануть все неактивные таймеры"
+              >
+                <Icon name="Play" className="size-3.5" />
+                <span>Стартануть все</span>
+              </Button>
+            )}
             <Button
               variant="outline"
               size="sm"

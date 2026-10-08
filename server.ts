@@ -56,6 +56,22 @@ export const rpcContract = defineRpcContract({
     input: z.null(),
     output: z.object({ clearedCount: z.number() }),
   },
+  timers_start_all: {
+    input: z.null(),
+    output: z.object({ timers: z.array(timerSchema) }),
+  },
+  timers_add_batch: {
+    input: z.object({
+      timers: z.array(
+        z.object({
+          title: z.string().trim().min(1).max(100),
+          durationMinutes: z.number().positive(),
+        }),
+      ),
+      startImmediately: z.boolean().optional(),
+    }),
+    output: z.object({ timers: z.array(timerSchema) }),
+  },
 });
 
 export const TIMERS_CHANGED = "timers-changed";
@@ -115,6 +131,14 @@ export default async function plugin(bb: BbPluginApi) {
       const clearedCount = await service.clearCompleted();
       return { clearedCount };
     },
+    async timers_start_all() {
+      const timers = await service.startAllTimers();
+      return { timers };
+    },
+    async timers_add_batch(input) {
+      const timers = await service.addBatchTimers(input.timers, input.startImmediately ?? false);
+      return { timers };
+    },
   });
 
   bb.cli.register({
@@ -155,6 +179,16 @@ export default async function plugin(bb: BbPluginApi) {
         name: "clear",
         summary: "Clear all completed timers",
         usage: "bb timer clear",
+      },
+      {
+        name: "start-all",
+        summary: "Start or resume all non-running timers",
+        usage: "bb timer start-all",
+      },
+      {
+        name: "batch",
+        summary: "Load and add timers from a local JSON file [ { title, durationMinutes } ]",
+        usage: "bb timer batch <path/to/file.json> [--start]",
       },
     ],
     async run(argv) {
@@ -300,9 +334,52 @@ export default async function plugin(bb: BbPluginApi) {
         };
       }
 
+      if (subcommand === "start-all") {
+        const started = await service.startAllTimers();
+        return {
+          exitCode: 0,
+          stdout: `Started/resumed ${started.length} timer(s).\n`,
+        };
+      }
+
+      if (subcommand === "batch") {
+        const filePath = argv[1];
+        if (!filePath) {
+          return {
+            exitCode: 1,
+            stderr: "Usage: bb timer batch <path/to/file.json> [--start]\n",
+          };
+        }
+        try {
+          const fs = await import("node:fs/promises");
+          const path = await import("node:path");
+          const resolved = path.resolve(process.cwd(), filePath);
+          const raw = await fs.readFile(resolved, "utf-8");
+          const parsed = JSON.parse(raw);
+          if (!Array.isArray(parsed)) {
+            return {
+              exitCode: 1,
+              stderr: "Invalid JSON: expected an array of { title, durationMinutes }\n",
+            };
+          }
+          const startImmediately = argv.includes("--start");
+          const created = await service.addBatchTimers(parsed, startImmediately);
+          const actionStr = startImmediately ? "and started" : "(idle, ready to start)";
+          return {
+            exitCode: 0,
+            stdout: `Loaded and added ${created.length} timer(s) from "${filePath}" ${actionStr}.\n`,
+          };
+        } catch (err) {
+          return {
+            exitCode: 1,
+            stderr: `Failed to load batch file: ${err instanceof Error ? err.message : String(err)}\n`,
+          };
+        }
+      }
+
       return {
         exitCode: 1,
-        stderr: `Unknown subcommand "${subcommand}". Available: list, add, start, pause, reset, remove, clear\n`,
+        stderr: `Unknown subcommand "${subcommand}". Available: list, add, start, pause, reset, remove, clear, start-all, batch\n`,
       };
     },
   });

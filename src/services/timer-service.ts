@@ -152,4 +152,35 @@ export class TimerService {
     }
     return clearedCount;
   }
+
+  async startAllTimers(): Promise<Timer[]> {
+    const existing = await this.storage.getTimers();
+    const now = this.nowProvider();
+    const updated = existing.map((t) => {
+      if (t.status === "idle" || t.status === "paused") {
+        return startTimer(t, now);
+      }
+      return t;
+    });
+    await this.storage.saveTimers(updated);
+    this.onTimersChanged?.(updated);
+    return updated;
+  }
+
+  async addBatchTimers(
+    batch: Array<{ title: string; durationMinutes: number }>,
+    startImmediately = false,
+  ): Promise<Timer[]> {
+    const now = this.nowProvider();
+    const newTimers: Timer[] = batch.map((item) => {
+      const id = randomUUID().slice(0, 8);
+      return createTimer(id, { ...item, startImmediately }, now);
+    });
+
+    const existing = await this.storage.getTimers();
+    const updated = [...newTimers, ...existing];
+    await this.storage.saveTimers(updated);
+    this.onTimersChanged?.(updated);
+    return newTimers;
+  }
 }

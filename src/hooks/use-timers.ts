@@ -209,6 +209,27 @@ export function useTimers(options: UseTimersOptions = {}) {
     }
   }, [rpc, report]);
 
+  const startAll = useCallback(async () => {
+    try {
+      const res = await rpc.call("timers_start_all");
+      setTimers(res.timers);
+    } catch (err) {
+      report(err);
+    }
+  }, [rpc, report]);
+
+  const addBatch = useCallback(
+    async (batch: Array<{ title: string; durationMinutes: number }>, startImmediately = false) => {
+      try {
+        await rpc.call("timers_add_batch", { timers: batch, startImmediately });
+        fetchTimers();
+      } catch (err) {
+        report(err);
+      }
+    },
+    [rpc, report, fetchTimers],
+  );
+
   const activeRunningCount = timers.filter((t) => t.status === "running").length;
   const completedCount = timers.filter((t) => t.status === "completed").length;
 
@@ -226,6 +247,8 @@ export function useTimers(options: UseTimersOptions = {}) {
     earliestRunning,
     addTimer,
     start,
+    startAll,
+    addBatch,
     pause,
     reset,
     addTime,

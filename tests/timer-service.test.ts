@@ -135,3 +135,30 @@ test("TimerService clearCompleted removes finished timers", async () => {
   assert.equal(remainingList.length, 1);
   assert.equal(remainingList[0].title, "Т2");
 });
+
+test("TimerService startAllTimers starts all idle/paused timers", async () => {
+  const storage = new InMemoryTimerStorage();
+  const service = new TimerService(storage);
+
+  await service.addTimer({ title: "T1", durationMinutes: 5, startImmediately: false });
+  await service.addTimer({ title: "T2", durationMinutes: 10, startImmediately: false });
+
+  const started = await service.startAllTimers();
+  assert.equal(started.length, 2);
+  assert.equal(started[0].status, "running");
+  assert.equal(started[1].status, "running");
+});
+
+test("TimerService addBatchTimers adds an array of custom timers", async () => {
+  const storage = new InMemoryTimerStorage();
+  const service = new TimerService(storage);
+
+  const batch = [
+    { title: "Блок 1", durationMinutes: 15 },
+    { title: "Блок 2", durationMinutes: 20 },
+  ];
+  const timers = await service.addBatchTimers(batch, false);
+  assert.equal(timers.length, 2);
+  assert.equal(timers[0].title, "Блок 1");
+  assert.equal(timers[1].title, "Блок 2");
+});

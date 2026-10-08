@@ -71,11 +71,11 @@ export function FloatingTimerOverlay() {
 
   // Dragging state
   const isDraggingRef = useRef(false);
+  const dragStartClientRef = useRef<Position>({ x: 0, y: 0 });
   const dragStartPosRef = useRef<Position>({ x: 0, y: 0 });
-  const overlayPosRef = useRef<Position>({ x: 0, y: 0 });
+  const hasMovedRef = useRef(false);
   const cardRef = useRef<HTMLDivElement>(null);
 
-  // Sync expanded/visible/sound state to localStorage
   const toggleSound = () => {
     const next = !soundEnabled;
     setSoundEnabled(next);
@@ -118,45 +118,80 @@ export function FloatingTimerOverlay() {
     };
   }, [isExpanded]);
 
-  // Handle Dragging
-  const handlePointerDown = (e: React.PointerEvent) => {
-    if ((e.target as HTMLElement).closest("button") || (e.target as HTMLElement).closest("input")) {
-      return; // Do not drag when interacting with controls
-    }
+  // Unified Drag Handlers
+  const startDrag = useCallback(
+    (e: React.PointerEvent, defaultWidth: number, defaultHeight: number) => {
+      isDraggingRef.current = true;
+      hasMovedRef.current = false;
+      dragStartClientRef.current = { x: e.clientX, y: e.clientY };
 
-    isDraggingRef.current = true;
-    dragStartPosRef.current = { x: e.clientX, y: e.clientY };
+      const rect = cardRef.current?.getBoundingClientRect();
+      const currentX = rect
+        ? rect.left
+        : position?.x ?? Math.max(10, window.innerWidth - defaultWidth - 24);
+      const currentY = rect
+        ? rect.top
+        : position?.y ?? Math.max(10, window.innerHeight - defaultHeight - 24);
 
-    const rect = cardRef.current?.getBoundingClientRect();
-    overlayPosRef.current = rect
-      ? { x: rect.left, y: rect.top }
-      : position ?? { x: window.innerWidth - 380, y: window.innerHeight - 450 };
+      dragStartPosRef.current = { x: currentX, y: currentY };
 
-    (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
-  };
+      try {
+        (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+      } catch {}
+    },
+    [position],
+  );
 
-  const handlePointerMove = (e: React.PointerEvent) => {
-    if (!isDraggingRef.current) return;
+  const onPointerMove = useCallback(
+    (e: React.PointerEvent) => {
+      if (!isDraggingRef.current) return;
 
-    const dx = e.clientX - dragStartPosRef.current.x;
-    const dy = e.clientY - dragStartPosRef.current.y;
+      const dx = e.clientX - dragStartClientRef.current.x;
+      const dy = e.clientY - dragStartClientRef.current.y;
 
-    const newX = Math.max(10, Math.min(window.innerWidth - 120, overlayPosRef.current.x + dx));
-    const newY = Math.max(10, Math.min(window.innerHeight - 60, overlayPosRef.current.y + dy));
-
-    setPosition({ x: newX, y: newY });
-  };
-
-  const handlePointerUp = (e: React.PointerEvent) => {
-    if (!isDraggingRef.current) return;
-    isDraggingRef.current = false;
-    try {
-      (e.target as HTMLElement).releasePointerCapture?.(e.pointerId);
-      if (position) {
-        localStorage.setItem(STORAGE_KEY_POS, JSON.stringify(position));
+      if (!hasMovedRef.current && Math.hypot(dx, dy) > 3) {
+        hasMovedRef.current = true;
       }
-    } catch {}
-  };
+
+      if (hasMovedRef.current) {
+        const targetWidth = cardRef.current?.offsetWidth || (isExpanded ? 384 : 200);
+        const targetHeight = cardRef.current?.offsetHeight || (isExpanded ? 400 : 40);
+
+        const newX = Math.max(10, Math.min(window.innerWidth - targetWidth - 10, dragStartPosRef.current.x + dx));
+        const newY = Math.max(10, Math.min(window.innerHeight - targetHeight - 10, dragStartPosRef.current.y + dy));
+
+        setPosition({ x: newX, y: newY });
+      }
+    },
+    [isExpanded],
+  );
+
+  const onPointerUp = useCallback(
+    (e: React.PointerEvent, onClickAction?: () => void) => {
+      if (!isDraggingRef.current) return;
+      isDraggingRef.current = false;
+
+      try {
+        (e.currentTarget as HTMLElement).releasePointerCapture(e.pointerId);
+      } catch {}
+
+      if (hasMovedRef.current) {
+        // Was a real drag: persist position
+        setPosition((currentPos) => {
+          if (currentPos) {
+            try {
+              localStorage.setItem(STORAGE_KEY_POS, JSON.stringify(currentPos));
+            } catch {}
+          }
+          return currentPos;
+        });
+      } else {
+        // Was a clean click without moving: execute click action
+        onClickAction?.();
+      }
+    },
+    [],
+  );
 
   // If user has timers but widget was closed, show pill if a timer completes
   useEffect(() => {
@@ -169,12 +204,15 @@ export function FloatingTimerOverlay() {
     return null;
   }
 
-  // Positioning style
+  // Calculate clamped positioning style to avoid rendering off-screen when expanding
+  const targetWidth = isExpanded ? 384 : 220;
+  const targetHeight = isExpanded ? 450 : 44;
+
   const stylePos: React.CSSProperties = position
     ? {
         position: "fixed",
-        left: `${position.x}px`,
-        top: `${position.y}px`,
+        left: `${Math.max(10, Math.min(window.innerWidth - targetWidth - 10, position.x))}px`,
+        top: `${Math.max(10, Math.min(window.innerHeight - targetHeight - 10, position.y))}px`,
         zIndex: 9999,
       }
     : {
@@ -184,56 +222,65 @@ export function FloatingTimerOverlay() {
         zIndex: 9999,
       };
 
-  // 1. Minimized Floating Pill Mode
+  // 1. Minimized Floating Pill Mode (Fully Draggable & Click-to-Expand)
   if (!isExpanded) {
     return (
       <div
         ref={cardRef}
         style={stylePos}
-        onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
-        onPointerUp={handlePointerUp}
-        className="touch-none select-none"
+        onPointerDown={(e) => startDrag(e, 220, 44)}
+        onPointerMove={onPointerMove}
+        onPointerUp={(e) => onPointerUp(e, () => handleSetExpanded(true))}
+        role="button"
+        tabIndex={0}
+        title="Зажмите, чтобы перетащить; нажмите, чтобы открыть таймеры"
+        className={cn(
+          "touch-none select-none cursor-grab active:cursor-grabbing group flex items-center gap-2 rounded-full border border-border bg-card/95 px-3.5 py-2 shadow-lg backdrop-blur-md transition-[shadow,background-color] duration-150 hover:bg-accent/20 hover:shadow-xl text-xs font-medium text-foreground",
+          completedCount > 0 && "border-amber-500/60 bg-amber-500/10 text-amber-500",
+          activeRunningCount > 0 && "border-primary/50",
+        )}
       >
-        <button
-          type="button"
-          onClick={() => handleSetExpanded(true)}
-          className={cn(
-            "group flex items-center gap-2 rounded-full border border-border bg-card/95 px-3.5 py-2 shadow-lg backdrop-blur-md transition-all duration-200 hover:bg-accent/20 hover:shadow-xl cursor-pointer text-xs font-medium text-foreground",
-            completedCount > 0 && "border-amber-500/60 bg-amber-500/10 text-amber-500",
-            activeRunningCount > 0 && "border-primary/50",
-          )}
-        >
-          {completedCount > 0 ? (
-            <>
-              <span className="size-2 animate-ping rounded-full bg-amber-500" />
-              <span>🔔 Готов таймер! ({completedCount})</span>
-            </>
-          ) : earliestRunning ? (
-            <>
-              <span className="size-2 animate-pulse rounded-full bg-emerald-500" />
-              <span className="truncate max-w-[130px]">{earliestRunning.title}:</span>
-              <span className="font-mono font-bold text-primary">
-                {formatTime(earliestRunning.remainingSeconds)}
-              </span>
-              {activeRunningCount > 1 && (
-                <span className="rounded-full bg-muted px-1.5 py-0.2 text-[10px] text-muted-foreground">
-                  +{activeRunningCount - 1}
-                </span>
-              )}
-            </>
-          ) : (
-            <>
-              <Icon name="Timer" className="size-4 text-muted-foreground group-hover:text-foreground" />
-              <span>Таймеры {timers.length > 0 && `(${timers.length})`}</span>
-            </>
-          )}
+        {/* Grip indicator */}
+        <div className="flex flex-col gap-0.5 opacity-40 group-hover:opacity-80 transition-opacity">
+          <div className="flex gap-0.5">
+            <span className="size-0.5 rounded-full bg-current" />
+            <span className="size-0.5 rounded-full bg-current" />
+          </div>
+          <div className="flex gap-0.5">
+            <span className="size-0.5 rounded-full bg-current" />
+            <span className="size-0.5 rounded-full bg-current" />
+          </div>
+        </div>
 
-          <Icon
-            name="Maximize2"
-            className="size-3 text-muted-foreground/60 transition-transform group-hover:text-foreground"
-          />
-        </button>
+        {completedCount > 0 ? (
+          <>
+            <span className="size-2 animate-ping rounded-full bg-amber-500" />
+            <span>🔔 Готов таймер! ({completedCount})</span>
+          </>
+        ) : earliestRunning ? (
+          <>
+            <span className="size-2 animate-pulse rounded-full bg-emerald-500" />
+            <span className="truncate max-w-[130px]">{earliestRunning.title}:</span>
+            <span className="font-mono font-bold text-primary">
+              {formatTime(earliestRunning.remainingSeconds)}
+            </span>
+            {activeRunningCount > 1 && (
+              <span className="rounded-full bg-muted px-1.5 py-0.2 text-[10px] text-muted-foreground">
+                +{activeRunningCount - 1}
+              </span>
+            )}
+          </>
+        ) : (
+          <>
+            <Icon name="Timer" className="size-4 text-muted-foreground group-hover:text-foreground" />
+            <span>Таймеры {timers.length > 0 && `(${timers.length})`}</span>
+          </>
+        )}
+
+        <Icon
+          name="Maximize2"
+          className="size-3 text-muted-foreground/60 transition-transform group-hover:text-foreground ml-0.5"
+        />
       </div>
     );
   }
@@ -247,12 +294,28 @@ export function FloatingTimerOverlay() {
     >
       {/* Draggable Window Header */}
       <div
-        onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
-        onPointerUp={handlePointerUp}
+        onPointerDown={(e) => {
+          if ((e.target as HTMLElement).closest("button") || (e.target as HTMLElement).closest("input")) {
+            return;
+          }
+          startDrag(e, 384, 450);
+        }}
+        onPointerMove={onPointerMove}
+        onPointerUp={(e) => onPointerUp(e)}
         className="flex items-center justify-between border-b border-border bg-muted/30 px-3.5 py-2.5 cursor-grab active:cursor-grabbing shrink-0"
       >
         <div className="flex items-center gap-2">
+          {/* Grip dots */}
+          <div className="flex flex-col gap-0.5 opacity-40 hover:opacity-80 transition-opacity">
+            <div className="flex gap-0.5">
+              <span className="size-0.5 rounded-full bg-current" />
+              <span className="size-0.5 rounded-full bg-current" />
+            </div>
+            <div className="flex gap-0.5">
+              <span className="size-0.5 rounded-full bg-current" />
+              <span className="size-0.5 rounded-full bg-current" />
+            </div>
+          </div>
           <Icon name="Timer" className="size-4 text-primary" />
           <span className="text-xs font-semibold text-foreground">Таймеры</span>
           {activeRunningCount > 0 && (
@@ -303,7 +366,7 @@ export function FloatingTimerOverlay() {
 
       {/* Main Content Area */}
       <div className="flex-1 overflow-y-auto p-3 space-y-3">
-        {/* Toggleable / Always accessible Creator */}
+        {/* Creator */}
         <div>
           <div className="flex items-center justify-between mb-2">
             <span className="text-xs font-medium text-muted-foreground">

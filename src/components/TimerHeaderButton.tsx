@@ -13,6 +13,23 @@ export function TimerHeaderButton() {
     window.dispatchEvent(new CustomEvent("bb:timer:toggle"));
   };
 
+  const isIdle = !earliestRunning && completedCount === 0;
+
+  if (isIdle) {
+    return (
+      <Button
+        variant="ghost"
+        size="icon"
+        className="size-7 p-0 text-muted-foreground hover:text-foreground hover:bg-state-hover cursor-pointer transition-colors"
+        onClick={handleClick}
+        title="Таймеры (Focus Timers)"
+        aria-label="Таймеры"
+      >
+        <Icon name="Timer" className="size-3.5" />
+      </Button>
+    );
+  }
+
   return (
     <Button
       variant="ghost"
@@ -21,26 +38,25 @@ export function TimerHeaderButton() {
         "h-7 gap-1.5 px-2 text-xs text-muted-foreground hover:text-foreground cursor-pointer transition-colors max-w-[240px]",
         activeRunningCount > 0
           ? "text-primary font-medium"
-          : completedCount > 0
-          ? "text-amber-500 hover:text-amber-400 font-medium"
-          : "text-muted-foreground",
+          : "text-amber-500 hover:text-amber-400 font-medium",
       )}
       onClick={handleClick}
       title={
         earliestRunning
           ? `Таймер: ${earliestRunning.title} (${formatTime(earliestRunning.remainingSeconds)} осталось)`
-          : "Открыть / скрыть плавающий таймер"
+          : `Готово (${completedCount})`
+      }
+      aria-label={
+        earliestRunning
+          ? `Таймер: ${earliestRunning.title} (${formatTime(earliestRunning.remainingSeconds)})`
+          : `Таймеры завершены (${completedCount})`
       }
     >
       <Icon
         name="Timer"
         className={cn(
           "size-3.5 shrink-0",
-          activeRunningCount > 0
-            ? "text-primary animate-pulse"
-            : completedCount > 0
-            ? "text-amber-500 animate-bounce"
-            : "",
+          activeRunningCount > 0 ? "text-primary animate-pulse" : "text-amber-500 animate-bounce",
         )}
       />
 
@@ -56,10 +72,8 @@ export function TimerHeaderButton() {
             {formatTime(earliestRunning.remainingSeconds)}
           </span>
         </div>
-      ) : completedCount > 0 ? (
-        <span className="text-[11px] truncate">Готово ({completedCount})</span>
       ) : (
-        <span className="hidden sm:inline text-[11px]">Таймер</span>
+        <span className="text-[11px] truncate">Готово ({completedCount})</span>
       )}
     </Button>
   );
